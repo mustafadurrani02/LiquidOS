@@ -1,0 +1,220 @@
+# LiquidOS
+
+LiquidOS is a completely original beginner-oriented x86_64 operating system.
+
+It uses:
+
+- a custom BIOS boot sector
+- a custom second-stage bootloader
+- a freestanding C kernel
+- x86_64 long mode
+- VBE framebuffer graphics
+- double-buffered drawing
+- PS/2 keyboard input
+- PS/2 mouse input
+- a simple desktop, taskbar, windows, terminal, file explorer placeholder, shutdown button, and reboot button
+
+No Linux, BSD, ReactOS, TempleOS, or existing operating-system code is used.
+
+## Install These Windows Tools
+
+Install all three tools, then close and reopen PowerShell.
+
+| Tool | Why | Download |
+| --- | --- | --- |
+| NASM 3.01 | Builds assembly boot code | https://www.nasm.us/pub/nasm/releasebuilds/3.01/win64/nasm-3.01-installer-x64.exe |
+| LLVM 22.1.6 | Builds and links the C kernel | https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.6/LLVM-22.1.6-win64.exe |
+| VirtualBox 7.2.8 | Runs the OS | https://download.virtualbox.org/virtualbox/7.2.8/VirtualBox-7.2.8-173730-Win.exe |
+
+During LLVM installation, enable the option that adds LLVM to the system PATH if the installer offers it. The scripts also check the normal `C:\Program Files\LLVM\bin` location.
+
+## Open PowerShell
+
+1. Open the Windows Start menu.
+2. Type `PowerShell`.
+3. Open **Windows PowerShell**.
+4. Run:
+
+```powershell
+cd "C:\Users\musta\Documents\Codex\2026-05-31\you-are-an-expert-operating-system"
+```
+
+## Allow Local Scripts
+
+Run this once:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Expected result: PowerShell asks for confirmation. Type `Y` and press Enter.
+
+If you do not want to change the policy permanently, run scripts with a temporary bypass:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-tools.ps1
+```
+
+## Verify Tools
+
+From the project folder:
+
+```powershell
+.\scripts\check-tools.ps1
+```
+
+Expected result:
+
+```text
+Success: all LiquidOS tools are available.
+```
+
+If a tool is missing, install it, close PowerShell, open a new PowerShell window, and run the check again.
+
+If you already installed a tool but the checker still says it is missing, run:
+
+```powershell
+.\scripts\diagnose-tools.ps1
+```
+
+If the diagnostic script shows the file exists, but the checker still cannot use it, set the paths manually in that same PowerShell window:
+
+```powershell
+$env:LIQUIDOS_NASM="C:\Program Files\NASM\nasm.exe"
+$env:LIQUIDOS_VBOXMANAGE="C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"
+$env:LIQUIDOS_LLVM_BIN="C:\Program Files\LLVM\bin"
+.\scripts\check-tools.ps1
+```
+
+## Build The OS
+
+From the project folder:
+
+```powershell
+.\scripts\build.ps1
+```
+
+Expected result:
+
+```text
+Build complete.
+Stage 1: ...\build\stage1.bin (512 bytes)
+Stage 2: ...\build\stage2.bin (... bytes, padded to 8192 bytes)
+Kernel:  ...\build\kernel.bin (... bytes, ... sectors)
+```
+
+Create the boot image and ISO:
+
+```powershell
+.\scripts\make-iso.ps1
+```
+
+Expected result:
+
+```text
+Boot image created.
+...\build\liquidos.img
+
+ISO created.
+...\build\liquidos.iso
+```
+
+## Run In VirtualBox
+
+The easiest path is:
+
+```powershell
+.\scripts\run-virtualbox.ps1
+```
+
+Expected result:
+
+1. A VM named `LiquidOS` is created or updated.
+2. `build\liquidos.iso` is attached as the optical disk.
+3. VirtualBox opens.
+4. The OS boots into a graphical desktop.
+
+You should see:
+
+- desktop background
+- taskbar
+- terminal window
+- file explorer window
+- movable mouse cursor
+- Terminal, Files, Reboot, and Shutdown taskbar buttons
+
+Try typing in the terminal:
+
+```text
+help
+ls
+mem
+about
+clear
+```
+
+## Manual VirtualBox Settings
+
+Use these if you create the VM by hand:
+
+- Name: `LiquidOS`
+- Type: `Other`
+- Version: `Other/Unknown (64-bit)`
+- EFI: disabled
+- RAM: `256 MB`
+- CPUs: `1`
+- Boot order: optical first
+- Hard disk: none required
+- Graphics controller: `VBoxVGA`
+- Video memory: `64 MB`
+- 3D acceleration: disabled
+- Pointing device: `PS/2 Mouse`
+- USB: disabled
+- Network: disabled
+- Audio: disabled
+- Optical drive: attach `C:\Users\musta\Documents\Codex\2026-05-31\you-are-an-expert-operating-system\build\liquidos.iso`
+
+## Clean Build Files
+
+```powershell
+.\scripts\clean.ps1
+```
+
+## Project Layout
+
+```text
+boot/
+  include/               Boot layout constants
+  stage1/                512-byte BIOS boot sector
+  stage2/                Long-mode loader
+
+kernel/
+  arch/x86_64/           Kernel assembly entry
+  core/                  Kernel main and serial logging
+  drivers/               Framebuffer, PS/2 keyboard, PS/2 mouse, power
+  fs/                    Tiny read-only filesystem foundation
+  gfx/                   Drawing, text, double buffering
+  include/liquidos/        Kernel headers
+  lib/                   Freestanding string/format helpers
+  mm/                    Memory map and heap foundation
+  ui/                    Desktop, windows, terminal
+
+scripts/
+  check-tools.ps1        Verifies required tools
+  build.ps1              Builds bootloader and kernel
+  make-image.ps1         Creates raw boot image
+  make-iso.ps1           Creates bootable ISO
+  run-virtualbox.ps1     Creates/updates/runs VirtualBox VM
+  clean.ps1              Removes build outputs
+```
+
+## Debugging
+
+If the VM does not boot:
+
+1. Run `.\scripts\check-tools.ps1`.
+2. Run `.\scripts\clean.ps1`.
+3. Run `.\scripts\run-virtualbox.ps1`.
+4. Check `build\serial.log` if it exists.
+
+The boot path is intentionally fixed-sector and small so early failures are easier to diagnose.

@@ -1,0 +1,94 @@
+#include <liquidos/boot.h>
+#include <liquidos/app.h>
+#include <liquidos/disk.h>
+#include <liquidos/framebuffer.h>
+#include <liquidos/fs.h>
+#include <liquidos/gfx.h>
+#include <liquidos/input.h>
+#include <liquidos/interrupts.h>
+#include <liquidos/io.h>
+#include <liquidos/lib.h>
+#include <liquidos/pmm.h>
+#include <liquidos/ps2.h>
+#include <liquidos/serial.h>
+#include <liquidos/ui.h>
+
+static void vga_text_fallback(const char *message) {
+    volatile u16 *vga = (volatile u16 *)0xB8000;
+    for (u32 i = 0; i < 80 * 25; i++) {
+        vga[i] = 0x0720;
+    }
+
+    u32 pos = 0;
+    while (*message && pos < 80 * 25) {
+        if (*message == '\n') {
+            pos = ((pos / 80) + 1) * 80;
+        } else {
+            vga[pos++] = (u16)(0x0A00 | (u8)*message);
+        }
+        message++;
+    }
+}
+
+void kernel_main(const BootInfo *boot) {
+    serial_init();
+    serial_write_line("LiquidOS kernel entered long mode");
+
+    if (!boot || boot->magic != BOOT_INFO_MAGIC) {
+        vga_text_fallback("LiquidOS kernel received invalid boot info.\n");
+        for (;;) {
+            cpu_pause();
+        }
+    }
+
+    pmm_init(boot);
+    disk_init();
+    fs_init();
+    app_init();
+    input_queue_init();
+    framebuffer_init(boot);
+    gfx_init(framebuffer_get());
+
+    if (!gfx_is_available()) {
+        vga_text_fallback("LiquidOS could not start graphics.\nCheck VirtualBox video settings.\n");
+        for (;;) {
+            cpu_pause();
+        }
+    }
+
+    ps2_init();
+
+    /*
+     * The interrupt foundation is kept in the tree, but IRQ delivery is not
+     * enabled yet. VirtualBox Guru Meditations point to a remaining bug in
+     * the early interrupt path, so the stable build uses the known-good
+     * polling loop until that path is debugged properly.
+     */
+    ui_init(boot);
+    u64 software_ticks = 0;
+
+    for (;;) {
+        InputEvent event;
+        while (ps2_poll(&event)) {
+            input_queue_push(&event);
+        }
+
+        while (input_queue_pop(&event)) {
+            if (event.type == INPUT_EVENT_TICK) {
+                ui_update(pit_ticks());
+            } else {
+                ui_handle_event(&event);
+                if (event.type == INPUT_EVENT_MOUSE) {
+                    ui_render();
+                }
+            }
+        }
+
+        ui_update(software_ticks++);
+        ui_render();
+
+        for (u32 i = 0; i < 8; i++) {
+            cpu_pause();
+        }
+    }
+}

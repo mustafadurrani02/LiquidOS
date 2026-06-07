@@ -1,0 +1,5 @@
+build/
+outputs/
+work/
+assets/fonts/*.otf
+assets/fonts/*.ttf

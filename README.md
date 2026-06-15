@@ -13,8 +13,43 @@ It uses:
 - PS/2 keyboard input
 - PS/2 mouse input
 - a simple desktop, taskbar, windows, terminal, file explorer placeholder, shutdown button, and reboot button
+- a native Liqueia browser shell with tabs, address input, bookmarks, history, and local pages
 
 No Linux, BSD, ReactOS, TempleOS, or existing operating-system code is used.
+
+## Liqueia Browser
+
+LiquidOS includes a native port of the original
+[Liqueia](https://github.com/mustafadurrani02/Liqueia) browser experience. The
+kernel app carries over Liqueia's tab model, address/search workflow, bookmarks,
+history, settings, and gold liquid-glass identity without embedding Electron.
+
+External pages currently show a network-unavailable screen because LiquidOS does
+not yet have NIC, DNS, TCP/IP, TLS, or an HTML rendering engine. The native shell
+is structured so those services can be connected as the OS gains them.
+
+## macOS (Apple Silicon)
+
+LiquidOS is an x86_64 BIOS operating system. VirtualBox on an Apple Silicon
+Mac runs Arm guests and cannot run this x86_64 BIOS image. Use QEMU, which can
+emulate an x86_64 PC:
+
+```bash
+git clone https://github.com/mustafadurrani02/LiquidOS.git
+cd LiquidOS
+brew install llvm lld nasm qemu
+chmod +x scripts/build-macos.sh scripts/run-qemu.sh
+./scripts/run-qemu.sh
+```
+
+To build without starting the emulator:
+
+```bash
+./scripts/build-macos.sh
+```
+
+The boot image is written to `build/liquidos.img` and serial output is written
+to `build/serial.log`.
 
 ## Install These Windows Tools
 

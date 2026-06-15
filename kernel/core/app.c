@@ -4,7 +4,7 @@
 
 static const AppDescriptor apps[] = {
     { APP_TERMINAL, "Terminal", "APPS/TERMINAL.APP", true },
-    { APP_BROWSER, "Browser", "APPS/BROWSER.APP", true },
+    { APP_BROWSER, "Liqueia", "APPS/LIQUEIA.APP", true },
     { APP_FILES, "Files", "APPS/FILES.APP", true },
 };
 

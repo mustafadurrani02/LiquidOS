@@ -108,11 +108,11 @@ static void fs_load_defaults(void) {
     set_file(1, "SYSTEM/BOOT.TXT", "Boot path: BIOS -> Stage 1 -> Stage 2 -> x86_64 kernel -> LiquidOS desktop.");
     set_file(2, "DESKTOP/NOTES.TXT", "The desktop, terminal, browser, and file manager are all custom kernel components.");
     set_file(3, "APPS/TERMINAL.APP", "Built-in terminal application.");
-    set_file(4, "APPS/BROWSER.APP", "Built-in offline browser application.");
+    set_file(4, "APPS/LIQUEIA.APP", "Native Liqueia browser shell for LiquidOS.");
     set_file(5, "APPS/FILES.APP", "Built-in graphical file manager.");
-    set_file(6, "WEB/HOME.HTML", "Liquid Browser\n\nThis browser renders local pages from the LiquidOS filesystem.\n\nOpen Docs or About from the buttons above.");
-    set_file(7, "WEB/DOCS.HTML", "LiquidOS Docs\n\nThe browser, Files, and Terminal all read from the same RAM filesystem.\n\nTry: write DESKTOP/HELLO.TXT Hello from LiquidOS");
-    set_file(8, "WEB/ABOUT.HTML", "About Liquid Browser\n\nThis is not the public internet yet. It is a real local document browser and a clean foundation for networking later.");
+    set_file(6, "WEB/HOME.HTML", "Liqueia native start page.");
+    set_file(7, "WEB/DOCS.HTML", "Liqueia is ready for the future LiquidOS network stack.");
+    set_file(8, "WEB/ABOUT.HTML", "Native port based on mustafadurrani02/Liqueia.");
 }
 
 void fs_init(void) {

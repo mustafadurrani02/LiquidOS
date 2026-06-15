@@ -3,6 +3,7 @@
 #include <liquidos/input.h>
 #include <liquidos/io.h>
 #include <liquidos/lib.h>
+#include <liquidos/liqueia.h>
 #include <liquidos/terminal.h>
 #include <liquidos/ui.h>
 #include "../gfx/app_icons.h"
@@ -73,7 +74,6 @@ static i32 previous_mouse_x = 320;
 static i32 previous_mouse_y = 240;
 static i32 hover_zone = -1;
 static i32 selected_file_index = 0;
-static i32 browser_page = 0;
 static u32 new_file_counter = 1;
 
 static i32 taskbar_x(void) {
@@ -407,24 +407,11 @@ static void handle_browser_click(const Window *window) {
     i32 x = window->x + 6;
     i32 y = window->y + 30;
     i32 width = window->width - 12;
+    i32 height = window->height - 36;
 
-    if (point_in_rect(mouse_x, mouse_y, x + 18, y + 104, 76, 30)) {
-        browser_page = 0;
-        set_taskbar_message("HOME");
-        mark_dirty_rect(window->x, window->y, window->width, window->height);
-    } else if (point_in_rect(mouse_x, mouse_y, x + 104, y + 104, 76, 30)) {
-        browser_page = 1;
-        set_taskbar_message("DOCS");
-        mark_dirty_rect(window->x, window->y, window->width, window->height);
-    } else if (point_in_rect(mouse_x, mouse_y, x + 190, y + 104, 76, 30)) {
-        browser_page = 2;
-        set_taskbar_message("ABOUT");
-        mark_dirty_rect(window->x, window->y, window->width, window->height);
-    } else if (point_in_rect(mouse_x, mouse_y, x + 84, y + 52, width - 208, 36)) {
-        browser_page = 0;
-        set_taskbar_message("ADDRESS BAR");
-        mark_dirty_rect(window->x, window->y, window->width, window->height);
-    }
+    liqueia_handle_click(x, y, width, height, mouse_x, mouse_y);
+    set_taskbar_message("LIQUEIA");
+    mark_dirty_rect(window->x, window->y, window->width, window->height);
 }
 
 static void handle_window_click(void) {
@@ -616,77 +603,6 @@ static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
     }
 }
 
-static const char *browser_page_file(void) {
-    if (browser_page == 1) {
-        return "WEB/DOCS.HTML";
-    }
-    if (browser_page == 2) {
-        return "WEB/ABOUT.HTML";
-    }
-    return "WEB/HOME.HTML";
-}
-
-static const char *browser_page_url(void) {
-    if (browser_page == 1) {
-        return "https://liquidos.local/docs";
-    }
-    if (browser_page == 2) {
-        return "https://liquidos.local/about";
-    }
-    return "https://liquidos.local/start";
-}
-
-static void draw_browser_nav_button(i32 x, i32 y, const char *label, bool enabled) {
-    gfx_fill_round_rect_plain_alpha(x, y, 30, 30, 15, enabled ? RGB(234, 240, 247) : RGB(224, 229, 235), 255);
-    gfx_draw_text(x + 10, y + 7, label, enabled ? RGB(58, 66, 76) : RGB(146, 153, 162), 1);
-}
-
-static void draw_browser_chip(i32 x, i32 y, i32 width, const char *label, bool active) {
-    gfx_fill_round_rect_plain_alpha(x, y, width, 30, 15, active ? RGB(204, 224, 251) : RGB(239, 244, 249), 255);
-    gfx_draw_text(x + 14, y + 7, label, active ? RGB(24, 74, 132) : RGB(72, 82, 92), 1);
-}
-
-static void draw_browser(i32 x, i32 y, i32 width, i32 height) {
-    gfx_fill_rect(x, y, width, height, RGB(246, 248, 251));
-    gfx_fill_rect(x, y, width, 44, RGB(224, 232, 242));
-    gfx_fill_rect(x, y + 44, width, 56, RGB(237, 242, 248));
-
-    gfx_fill_round_rect_plain_alpha(x + 14, y + 8, 176, 32, 12, RGB(255, 255, 255), 255);
-    gfx_draw_argb8888_image_scaled(x + 24, y + 11, 26, 26, app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT);
-    gfx_draw_text(x + 58, y + 16, "Liquid Browser", RGB(42, 52, 64), 1);
-    gfx_fill_round_rect_plain_alpha(x + 202, y + 13, 24, 24, 12, RGB(237, 243, 250), 255);
-    gfx_draw_text(x + 210, y + 17, "+", RGB(63, 73, 84), 1);
-
-    draw_browser_nav_button(x + 18, y + 56, "<", false);
-    draw_browser_nav_button(x + 52, y + 56, ">", false);
-    draw_browser_nav_button(x + 86, y + 56, "R", true);
-
-    gfx_fill_round_rect_plain_alpha(x + 126, y + 52, width - 268, 38, 19, RGB(255, 255, 255), 255);
-    gfx_draw_argb8888_image_scaled(x + 140, y + 59, 24, 24, system_icon_search_argb, SYSTEM_ICON_SEARCH_WIDTH, SYSTEM_ICON_SEARCH_HEIGHT);
-    gfx_draw_text(x + 174, y + 62, browser_page_url(), RGB(53, 63, 73), 1);
-    gfx_fill_round_rect_plain_alpha(x + width - 132, y + 56, 104, 30, 15, RGB(255, 236, 214), 255);
-    gfx_draw_text(x + width - 118, y + 63, "Offline", RGB(128, 70, 24), 1);
-
-    draw_browser_chip(x + 18, y + 104, 76, "Home", browser_page == 0);
-    draw_browser_chip(x + 104, y + 104, 76, "Docs", browser_page == 1);
-    draw_browser_chip(x + 190, y + 104, 76, "About", browser_page == 2);
-
-    gfx_fill_round_rect_plain_alpha(x + 24, y + 150, width - 48, height - 176, 18, RGB(255, 255, 255), 255);
-    gfx_fill_round_rect_plain_alpha(x + 44, y + 170, width - 88, 50, 14, RGB(238, 245, 253), 255);
-    gfx_draw_argb8888_image_scaled(x + width - 128, y + 166, 64, 64, app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT);
-    gfx_draw_text(x + 60, y + 184, "LiquidOS web preview", RGB(38, 50, 64), 1);
-    gfx_draw_text(x + 60, y + 204, "Edge-style browser shell. Internet support needs the network stack.", RGB(87, 98, 110), 1);
-
-    const FsFile *page = fs_find(browser_page_file());
-    if (page) {
-        gfx_draw_text(x + 54, y + 244, page->contents, RGB(42, 51, 62), 1);
-    } else {
-        gfx_draw_text(x + 54, y + 244, "Page not found.", RGB(42, 51, 62), 1);
-    }
-
-    gfx_draw_text(x + 54, y + height - 30, "Status: no NIC/TCP/IP/TLS yet, so pages load from LiquidFS.", RGB(91, 103, 112), 1);
-}
-
 static void draw_window(WindowKind kind) {
     Window *window = &windows[kind];
     if (!window->open) {
@@ -704,7 +620,7 @@ static void draw_window(WindowKind kind) {
     if (kind == WINDOW_TERMINAL) {
         terminal_render(content_x, content_y, content_w, content_h, focused);
     } else if (kind == WINDOW_BROWSER) {
-        draw_browser(content_x, content_y, content_w, content_h);
+        liqueia_render(content_x, content_y, content_w, content_h);
     } else {
         draw_file_explorer(content_x, content_y, content_w, content_h);
     }
@@ -767,12 +683,12 @@ void ui_init(const BootInfo *boot) {
     gfx_prepare_wallpaper_rgb565(background_image_rgb565, BACKGROUND_IMAGE_WIDTH, BACKGROUND_IMAGE_HEIGHT);
 
     windows[WINDOW_TERMINAL] = (Window){ 90, 160, 720, 410, "Terminal", false, false };
-    windows[WINDOW_BROWSER] = (Window){ 180, 180, 760, 460, "Browser", false, false };
+    windows[WINDOW_BROWSER] = (Window){ 180, 180, 820, 500, "Liqueia", false, false };
     windows[WINDOW_FILES] = (Window){ 320, 260, 660, 400, "Files", false, false };
 
     if (screen_w < 800) {
         windows[WINDOW_TERMINAL] = (Window){ 25, 100, screen_w - 50, 310, "Terminal", false, false };
-        windows[WINDOW_BROWSER] = (Window){ 40, 120, screen_w - 80, 320, "Browser", false, false };
+        windows[WINDOW_BROWSER] = (Window){ 40, 120, screen_w - 80, 320, "Liqueia", false, false };
         windows[WINDOW_FILES] = (Window){ 55, 140, screen_w - 110, 270, "Files", false, false };
     }
 
@@ -785,6 +701,7 @@ void ui_init(const BootInfo *boot) {
     z_order[2] = WINDOW_BROWSER;
     focused_window = WINDOW_BROWSER;
     terminal_init();
+    liqueia_init();
     mark_dirty_full();
     cursor_redraw_needed = true;
 
@@ -799,6 +716,9 @@ void ui_handle_event(const InputEvent *event) {
         if (focused_window == WINDOW_TERMINAL && windows[WINDOW_TERMINAL].open) {
             terminal_on_char(event->ch);
             mark_dirty_window(WINDOW_TERMINAL);
+        } else if (focused_window == WINDOW_BROWSER && windows[WINDOW_BROWSER].open) {
+            liqueia_on_char(event->ch);
+            mark_dirty_window(WINDOW_BROWSER);
         }
         return;
     }

@@ -1,3 +1,4 @@
+#include <liquidos/fs.h>
 #include <liquidos/lib.h>
 #include <liquidos/process.h>
 #include <liquidos/serial.h>
@@ -71,6 +72,141 @@ bool process_exit_current(i32 code) {
     process->state = PROCESS_STOPPED;
     process->exit_code = code;
     process_set_current(1);
+    return true;
+}
+
+i32 process_open_current(const char *path) {
+    Process *process = process_current();
+    if (!process || !path || !fs_find(path)) {
+        return -1;
+    }
+
+    for (size_t i = 0; i < PROCESS_MAX_FILES; i++) {
+        if (!process->files[i].used) {
+            process->files[i].used = true;
+            process->files[i].offset = 0;
+            strncpy(process->files[i].path, path, sizeof(process->files[i].path) - 1);
+            process->files[i].path[sizeof(process->files[i].path) - 1] = 0;
+            return (i32)(PROCESS_FIRST_FD + i);
+        }
+    }
+
+    return -1;
+}
+
+i64 process_read_current(i32 fd, void *buffer, size_t buffer_size) {
+    Process *process = process_current();
+    if (!process || !buffer || buffer_size == 0 || fd < PROCESS_FIRST_FD) {
+        return -1;
+    }
+
+    size_t index = (size_t)(fd - PROCESS_FIRST_FD);
+    if (index >= PROCESS_MAX_FILES || !process->files[index].used) {
+        return -1;
+    }
+
+    const FsFile *file = fs_find(process->files[index].path);
+    if (!file) {
+        return -1;
+    }
+
+    if (process->files[index].offset >= file->size) {
+        return 0;
+    }
+
+    size_t available = (size_t)(file->size - process->files[index].offset);
+    size_t copy = available;
+    if (copy > buffer_size) {
+        copy = buffer_size;
+    }
+    memcpy(buffer, file->contents + process->files[index].offset, copy);
+    process->files[index].offset += copy;
+    return (i64)copy;
+}
+
+i64 process_write_current(i32 fd, const char *contents) {
+    Process *process = process_current();
+    if (!process || !contents || fd < PROCESS_FIRST_FD) {
+        return -1;
+    }
+
+    size_t index = (size_t)(fd - PROCESS_FIRST_FD);
+    if (index >= PROCESS_MAX_FILES || !process->files[index].used) {
+        return -1;
+    }
+
+    return fs_write(process->files[index].path, contents) ? (i64)strlen(contents) : -1;
+}
+
+bool process_close_current(i32 fd) {
+    Process *process = process_current();
+    if (!process || fd < PROCESS_FIRST_FD) {
+        return false;
+    }
+
+    size_t index = (size_t)(fd - PROCESS_FIRST_FD);
+    if (index >= PROCESS_MAX_FILES || !process->files[index].used) {
+        return false;
+    }
+
+    memset(&process->files[index], 0, sizeof(process->files[index]));
+    return true;
+}
+
+void process_save_interrupt_frame(const InterruptFrame *frame) {
+    Process *process = process_current();
+    if (!process || !frame) {
+        return;
+    }
+
+    process->context.r15 = frame->r15;
+    process->context.r14 = frame->r14;
+    process->context.r13 = frame->r13;
+    process->context.r12 = frame->r12;
+    process->context.r11 = frame->r11;
+    process->context.r10 = frame->r10;
+    process->context.r9 = frame->r9;
+    process->context.r8 = frame->r8;
+    process->context.rsi = frame->rsi;
+    process->context.rdi = frame->rdi;
+    process->context.rbp = frame->rbp;
+    process->context.rdx = frame->rdx;
+    process->context.rcx = frame->rcx;
+    process->context.rbx = frame->rbx;
+    process->context.rax = frame->rax;
+    process->context.rip = frame->rip;
+    process->context.cs = frame->cs;
+    process->context.rflags = frame->rflags;
+    process->context.rsp = (frame->cs & 3) == 3 ? frame->rsp : 0;
+    process->context.ss = (frame->cs & 3) == 3 ? frame->ss : 0;
+    process->context.valid = true;
+}
+
+bool process_restore_interrupt_frame(InterruptFrame *frame, const Process *process) {
+    if (!frame || !process || !process->context.valid) {
+        return false;
+    }
+
+    frame->r15 = process->context.r15;
+    frame->r14 = process->context.r14;
+    frame->r13 = process->context.r13;
+    frame->r12 = process->context.r12;
+    frame->r11 = process->context.r11;
+    frame->r10 = process->context.r10;
+    frame->r9 = process->context.r9;
+    frame->r8 = process->context.r8;
+    frame->rsi = process->context.rsi;
+    frame->rdi = process->context.rdi;
+    frame->rbp = process->context.rbp;
+    frame->rdx = process->context.rdx;
+    frame->rcx = process->context.rcx;
+    frame->rbx = process->context.rbx;
+    frame->rax = process->context.rax;
+    frame->rip = process->context.rip;
+    frame->cs = process->context.cs;
+    frame->rflags = process->context.rflags;
+    frame->rsp = process->context.rsp;
+    frame->ss = process->context.ss;
     return true;
 }
 

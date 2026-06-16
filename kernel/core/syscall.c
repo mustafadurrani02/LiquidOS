@@ -1,10 +1,12 @@
 #include <liquidos/app_store.h>
 #include <liquidos/fs.h>
+#include <liquidos/gdt.h>
 #include <liquidos/lib.h>
 #include <liquidos/process.h>
 #include <liquidos/scheduler.h>
 #include <liquidos/serial.h>
 #include <liquidos/syscall.h>
+#include <liquidos/usermode.h>
 #include <liquidos/vmm.h>
 
 void syscall_init(void) {
@@ -23,7 +25,14 @@ u64 syscall_dispatch(InterruptFrame *frame) {
         }
         return 0;
     case SYS_EXIT:
-        return process_exit_current((i32)frame->rbx) ? 0 : 1;
+        if (!process_exit_current((i32)frame->rbx)) {
+            return 1;
+        }
+        if ((frame->cs & 3) == 3) {
+            vmm_switch(vmm_kernel_space());
+            user_return_to_kernel_now();
+        }
+        return 0;
     case SYS_YIELD:
         scheduler_tick();
         return 0;
@@ -32,24 +41,29 @@ u64 syscall_dispatch(InterruptFrame *frame) {
     case SYS_TICKS:
         return scheduler_ticks();
     case SYS_OPEN:
-        return frame->rbx && fs_find((const char *)(uintptr_t)frame->rbx) ? 1 : 0;
+        return frame->rbx ? (u64)process_open_current((const char *)(uintptr_t)frame->rbx) : (u64)-1;
     case SYS_READ: {
+        if (!frame->rcx || frame->rdx == 0) {
+            return (u64)-1;
+        }
+        if (frame->rbx >= PROCESS_FIRST_FD && frame->rbx < PROCESS_FIRST_FD + PROCESS_MAX_FILES) {
+            return (u64)process_read_current((i32)frame->rbx, (void *)(uintptr_t)frame->rcx, (size_t)frame->rdx);
+        }
         const FsFile *file = frame->rbx ? fs_find((const char *)(uintptr_t)frame->rbx) : NULL;
-        if (!file || !frame->rcx || frame->rdx == 0) {
-            return 0;
+        if (!file) {
+            return (u64)-1;
         }
-        size_t copy = file->size;
-        if (copy + 1 > frame->rdx) {
-            copy = frame->rdx - 1;
-        }
+        size_t copy = file->size < frame->rdx ? file->size : (size_t)frame->rdx;
         memcpy((void *)(uintptr_t)frame->rcx, file->contents, copy);
-        ((char *)(uintptr_t)frame->rcx)[copy] = 0;
         return copy;
     }
     case SYS_FILE_WRITE:
+        if (frame->rbx >= PROCESS_FIRST_FD && frame->rbx < PROCESS_FIRST_FD + PROCESS_MAX_FILES) {
+            return frame->rcx ? (u64)process_write_current((i32)frame->rbx, (const char *)(uintptr_t)frame->rcx) : (u64)-1;
+        }
         return frame->rbx && frame->rcx && fs_write((const char *)(uintptr_t)frame->rbx, (const char *)(uintptr_t)frame->rcx) ? 0 : 1;
     case SYS_CLOSE:
-        return 0;
+        return process_close_current((i32)frame->rbx) ? 0 : 1;
     case SYS_SPAWN_STUB:
         return process_spawn_user_stub("user-stub", vmm_kernel_space(), 0, 0, 0x400000, 0x10000,
                                        (1ULL << SYS_WRITE) | (1ULL << SYS_EXIT) | (1ULL << SYS_YIELD) |

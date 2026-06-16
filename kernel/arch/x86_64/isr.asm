@@ -3,6 +3,8 @@ BITS 64
 GLOBAL isr_stub_table
 EXTERN interrupt_dispatch
 
+SECTION .text
+
 %macro ISR_NOERR 1
 GLOBAL isr_stub_%1
 isr_stub_%1:

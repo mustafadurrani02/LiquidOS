@@ -26,18 +26,20 @@ LiquidOS now has the first pieces of a real OS platform:
 
 - x86_64 IDT/PIC interrupt handling with a 100 Hz PIT timer
 - CPU exception diagnostics that report vector, error code, and RIP to serial
-- a GDT with kernel/user segments plus a TSS for ring-3 return stack setup
-- scheduler ticks and a process table with kernel tasks plus staged user-process contexts
+- a GDT with kernel/user segments plus a TSS and dedicated ring-3 trap stack
+- scheduler ticks and a process table with kernel tasks plus saved user trap contexts
 - an `int 0x80` syscall gate with basic syscalls for write, exit, yield, PID, uptime ticks, filesystem open/read/write/close, spawning a user stub, and installing catalog apps
 - a 4 KiB page-frame allocator layered on the BIOS memory map
 - VMM helpers for page mapping, unmapping, user/kernel permissions, guard pages, per-process address-space records, and page-fault diagnostics
-- a simple `LAPP` loader that loads `APPS/HELLO.APP` into staged user memory
+- a simple `LAPP` loader that maps `APPS/HELLO.APP` into user memory, enters ring 3 with `iretq`, prints through `SYS_WRITE`, exits through `SYS_EXIT`, and returns to the kernel
+- per-process file descriptor tables for `open`, `read`, `write`, and `close`
 - terminal commands for `ps`, `spawn`, `runhello`, `syscall`, `apps`, and `download NAME`
 
 Keyboard and mouse input still use the stable PS/2 polling path while timer IRQs
 drive scheduler accounting. User processes now carry entry RIP, user RSP,
-address-space, guard-page, exit-code, and syscall-mask metadata; switching CR3
-and executing ring-3 app code is the next boundary to cross.
+address-space, guard-page, exit-code, syscall-mask, file descriptor, and saved
+trap-frame metadata. Timer-driven preemption between multiple ring-3 processes
+is the next scheduler boundary to cross.
 
 ## Liqueia Browser
 

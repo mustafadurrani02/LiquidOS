@@ -24,6 +24,8 @@ typedef struct InterruptFrame {
     u64 rip;
     u64 cs;
     u64 rflags;
+    u64 rsp;
+    u64 ss;
 } InterruptFrame;
 
 void interrupts_init(void);

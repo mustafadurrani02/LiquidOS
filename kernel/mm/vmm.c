@@ -15,6 +15,10 @@ static u64 *phys_to_table(u64 phys) {
     return (u64 *)(uintptr_t)(phys & ~0xFFFULL);
 }
 
+static u64 table_phys(const void *table) {
+    return (u64)(uintptr_t)table;
+}
+
 static u16 pml4_index(u64 va) {
     return (u16)((va >> 39) & 0x1FF);
 }
@@ -31,13 +35,28 @@ static u16 pt_index(u64 va) {
     return (u16)((va >> 12) & 0x1FF);
 }
 
-static u64 *ensure_next_table(u64 *table, u16 index, u64 flags) {
+static u64 *clone_table(u64 entry) {
+    void *page = pmm_alloc_page();
+    if (!page) {
+        return NULL;
+    }
+    memcpy(page, phys_to_table(entry), VMM_PAGE_SIZE);
+    return (u64 *)page;
+}
+
+static u64 *ensure_private_next_table(u64 *table, u16 index, u64 flags) {
     if ((table[index] & VMM_PRESENT) == 0) {
         void *page = pmm_alloc_page();
         if (!page) {
             return NULL;
         }
         table[index] = ((u64)(uintptr_t)page) | VMM_PRESENT | VMM_WRITE | (flags & VMM_USER);
+    } else {
+        u64 *copy = clone_table(table[index]);
+        if (!copy) {
+            return NULL;
+        }
+        table[index] = table_phys(copy) | (table[index] & 0xFFFULL) | (flags & VMM_USER);
     }
     return phys_to_table(table[index]);
 }
@@ -54,11 +73,11 @@ static u64 *ensure_page_table(u64 *pd, u16 index, u64 virtual_address, u64 flags
         for (u32 i = 0; i < 512; i++) {
             pt[i] = base + (i * VMM_PAGE_SIZE) + inherited + VMM_PRESENT;
         }
-        pd[index] = ((u64)(uintptr_t)pt) | VMM_PRESENT | VMM_WRITE | (flags & VMM_USER);
+        pd[index] = table_phys(pt) | VMM_PRESENT | VMM_WRITE | (flags & VMM_USER);
         return pt;
     }
 
-    return ensure_next_table(pd, index, flags);
+    return ensure_private_next_table(pd, index, flags);
 }
 
 void vmm_init(void) {
@@ -78,10 +97,16 @@ AddressSpace vmm_create_user_space(void) {
         return space;
     }
 
-    /* User mappings are staged in their own tables so the loader cannot mutate
-       the live boot identity map before CR3 switching exists. */
+    memcpy(pml4_page, (const void *)(uintptr_t)kernel_space.pml4_phys, VMM_PAGE_SIZE);
     space.pml4_phys = (u64)(uintptr_t)pml4_page;
     return space;
+}
+
+void vmm_switch(AddressSpace space) {
+    if (!space.pml4_phys) {
+        return;
+    }
+    __asm__ volatile("mov %0, %%cr3" : : "r"(space.pml4_phys) : "memory");
 }
 
 bool vmm_map_page(AddressSpace *space, u64 virtual_address, u64 physical_address, u64 flags) {
@@ -90,11 +115,11 @@ bool vmm_map_page(AddressSpace *space, u64 virtual_address, u64 physical_address
     }
 
     u64 *pml4 = phys_to_table(space->pml4_phys);
-    u64 *pdpt = ensure_next_table(pml4, pml4_index(virtual_address), flags);
+    u64 *pdpt = ensure_private_next_table(pml4, pml4_index(virtual_address), flags);
     if (!pdpt) {
         return false;
     }
-    u64 *pd = ensure_next_table(pdpt, pdpt_index(virtual_address), flags);
+    u64 *pd = ensure_private_next_table(pdpt, pdpt_index(virtual_address), flags);
     if (!pd) {
         return false;
     }

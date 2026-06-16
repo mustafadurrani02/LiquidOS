@@ -22,6 +22,7 @@
 #include <liquidos/vmm.h>
 
 extern u8 kernel_stack_top;
+extern u8 user_trap_stack_top;
 
 static void vga_text_fallback(const char *message) {
     volatile u16 *vga = (volatile u16 *)0xB8000;
@@ -52,7 +53,7 @@ void kernel_main(const BootInfo *boot) {
     }
 
     pmm_init(boot);
-    gdt_init(&kernel_stack_top);
+    gdt_init(&user_trap_stack_top);
     vmm_init();
     process_init();
     scheduler_init();

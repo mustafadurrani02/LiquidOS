@@ -16,6 +16,7 @@ typedef struct AddressSpace {
 void vmm_init(void);
 AddressSpace vmm_kernel_space(void);
 AddressSpace vmm_create_user_space(void);
+void vmm_switch(AddressSpace space);
 bool vmm_map_page(AddressSpace *space, u64 virtual_address, u64 physical_address, u64 flags);
 bool vmm_unmap_page(AddressSpace *space, u64 virtual_address);
 bool vmm_map_guard_page(AddressSpace *space, u64 virtual_address);

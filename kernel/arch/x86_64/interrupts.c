@@ -5,6 +5,7 @@
 #include <liquidos/keyboard.h>
 #include <liquidos/lib.h>
 #include <liquidos/mouse.h>
+#include <liquidos/process.h>
 #include <liquidos/scheduler.h>
 #include <liquidos/syscall.h>
 #include <liquidos/vmm.h>
@@ -183,6 +184,7 @@ void interrupts_init(void) {
 
 void interrupt_dispatch(InterruptFrame *frame) {
     u64 vector = frame->vector;
+    process_save_interrupt_frame(frame);
 
     if (vector == 0x80) {
         frame->rax = syscall_dispatch(frame);

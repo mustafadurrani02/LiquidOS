@@ -5,11 +5,18 @@
 #include <liquidos/types.h>
 
 typedef enum SyscallNumber {
-    SYS_HELLO = 0,
-    SYS_GETPID = 1,
-    SYS_TICKS = 2,
-    SYS_SPAWN_STUB = 3,
-    SYS_INSTALL_APP = 4,
+    SYS_WRITE = 0,
+    SYS_EXIT = 1,
+    SYS_YIELD = 2,
+    SYS_GETPID = 3,
+    SYS_TICKS = 4,
+    SYS_OPEN = 5,
+    SYS_READ = 6,
+    SYS_FILE_WRITE = 7,
+    SYS_CLOSE = 8,
+    SYS_SPAWN_STUB = 9,
+    SYS_INSTALL_APP = 10,
+    SYS_HELLO = 11,
     SYS_COUNT
 } SyscallNumber;
 

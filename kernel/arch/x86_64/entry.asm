@@ -1,6 +1,7 @@
 BITS 64
 
 GLOBAL kernel_entry
+GLOBAL kernel_stack_top
 EXTERN kernel_main
 EXTERN __bss_start
 EXTERN __bss_end

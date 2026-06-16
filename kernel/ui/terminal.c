@@ -1,6 +1,7 @@
 #include <liquidos/app_store.h>
 #include <liquidos/fs.h>
 #include <liquidos/gfx.h>
+#include <liquidos/loader.h>
 #include <liquidos/lib.h>
 #include <liquidos/pmm.h>
 #include <liquidos/power.h>
@@ -109,7 +110,7 @@ static void execute_command(const char *command) {
     terminal_write_line(prompt_line);
 
     if (strcmp(command, "help") == 0) {
-        terminal_write_line("Commands: help, clear, about, mem, ps, spawn, syscall");
+        terminal_write_line("Commands: help, clear, about, mem, ps, spawn, runhello, syscall");
         terminal_write_line("Files: ls, cat, touch, write, rm. Store: apps, download NAME.");
     } else if (strcmp(command, "clear") == 0) {
         line_count = 0;
@@ -143,6 +144,15 @@ static void execute_command(const char *command) {
         line[0] = 0;
         append_text(line, sizeof(line), pid ? "Spawned user stub pid " : "Could not spawn user stub ");
         append_text(line, sizeof(line), pid_text);
+        terminal_write_line(line);
+    } else if (strcmp(command, "runhello") == 0) {
+        LoadResult loaded = loader_load_app("APPS/HELLO.APP");
+        char pid_text[24];
+        char line[TERMINAL_LINE_LENGTH];
+        u64_to_dec(loaded.pid, pid_text, sizeof(pid_text));
+        line[0] = 0;
+        append_text(line, sizeof(line), loaded.ok ? "Loaded hello.app pid " : "Could not load hello.app: ");
+        append_text(line, sizeof(line), loaded.ok ? pid_text : loaded.message);
         terminal_write_line(line);
     } else if (strcmp(command, "syscall") == 0) {
         char value[32];

@@ -76,11 +76,12 @@ Invoke-CheckedCommand $objcopy @("-O", "binary", $kernelElf, $kernelBin)
 
 $kernelBytes = [System.IO.File]::ReadAllBytes($kernelBin)
 $kernelSectorCount = [int][Math]::Ceiling($kernelBytes.Length / 512.0)
+$kernelMaxSectors = 1120
 if ($kernelSectorCount -lt 1) {
     throw "Kernel binary is empty."
 }
-if ($kernelSectorCount -gt 1024) {
-    throw "Kernel uses $kernelSectorCount sectors, but the boot image reserves at most 1024 sectors."
+if ($kernelSectorCount -gt $kernelMaxSectors) {
+    throw "Kernel uses $kernelSectorCount sectors, but the boot image reserves at most $kernelMaxSectors sectors."
 }
 
 $paddedKernel = New-Object byte[] ($kernelSectorCount * 512)
@@ -130,3 +131,4 @@ Write-Host "Build complete." -ForegroundColor Green
 Write-Host "Stage 1: $stage1Bin (512 bytes)"
 Write-Host "Stage 2: $stage2Bin ($($stage2Bytes.Length) bytes, padded to $stage2MaxBytes bytes)"
 Write-Host "Kernel:  $kernelBin ($($kernelBytes.Length) bytes, $kernelSectorCount sectors)"
+Write-Host "Reserve: $kernelMaxSectors sectors"

@@ -113,6 +113,7 @@ static void fs_load_defaults(void) {
     set_file(6, "WEB/HOME.HTML", "Liqueia native start page.");
     set_file(7, "WEB/DOCS.HTML", "Liqueia is ready for the future LiquidOS network stack.");
     set_file(8, "WEB/ABOUT.HTML", "Native port based on mustafadurrani02/Liqueia.");
+    set_file(9, "APPS/HELLO.APP", "LAPP\nname=hello.app\nentry=hello_main\nsyscalls=write,exit,yield,getpid,ticks\n");
 }
 
 void fs_init(void) {

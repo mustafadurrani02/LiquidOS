@@ -1,4 +1,5 @@
 #include <liquidos/input.h>
+#include <liquidos/gdt.h>
 #include <liquidos/interrupts.h>
 #include <liquidos/io.h>
 #include <liquidos/keyboard.h>
@@ -6,11 +7,12 @@
 #include <liquidos/mouse.h>
 #include <liquidos/scheduler.h>
 #include <liquidos/syscall.h>
+#include <liquidos/vmm.h>
 #include <liquidos/debug.h>
 #include <liquidos/serial.h>
 
 #define IDT_ENTRIES 256
-#define KERNEL_CODE_SELECTOR 0x18
+#define KERNEL_CODE_SELECTOR GDT_KERNEL_CODE
 
 #define PIC1_COMMAND 0x20
 #define PIC1_DATA 0x21
@@ -47,6 +49,12 @@ extern void isr_stub_128(void);
 static IdtEntry idt[IDT_ENTRIES];
 static volatile u64 ticks = 0;
 static u16 pic_mask = 0xFFFF;
+
+static u64 read_cr2(void) {
+    u64 value;
+    __asm__ volatile("mov %%cr2, %0" : "=r"(value));
+    return value;
+}
 
 static void idt_set_gate(u8 vector, u64 handler) {
     idt[vector].offset_low = (u16)(handler & 0xFFFF);
@@ -222,6 +230,11 @@ void interrupt_dispatch(InterruptFrame *frame) {
     if (vector >= IRQ_BASE && vector < IRQ_BASE + 16) {
         pic_eoi((u8)(vector - IRQ_BASE));
         return;
+    }
+
+    if (vector == 14) {
+        vmm_report_page_fault(read_cr2(), frame->error_code, frame->rip);
+        panic("Page fault");
     }
 
     serial_write("CPU exception vector ");

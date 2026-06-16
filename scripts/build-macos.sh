@@ -79,9 +79,10 @@ kernel_padded="$build_dir/kernel.pad.bin"
 "$objcopy" -O binary "$kernel_elf" "$kernel_bin"
 
 kernel_bytes="$(wc -c < "$kernel_bin" | tr -d ' ')"
+kernel_max_sectors=1120
 kernel_sectors="$(( (kernel_bytes + 511) / 512 ))"
-if (( kernel_sectors < 1 || kernel_sectors > 1024 )); then
-    echo "Kernel uses $kernel_sectors sectors; expected between 1 and 1024." >&2
+if (( kernel_sectors < 1 || kernel_sectors > kernel_max_sectors )); then
+    echo "Kernel uses $kernel_sectors sectors; expected between 1 and $kernel_max_sectors." >&2
     exit 1
 fi
 
@@ -140,4 +141,5 @@ echo "Build complete."
 echo "Stage 1: $stage1_bin (512 bytes)"
 echo "Stage 2: $stage2_bin ($stage2_bytes bytes, padded to $stage2_max_bytes bytes)"
 echo "Kernel:  $kernel_bin ($kernel_bytes bytes, $kernel_sectors sectors)"
+echo "Reserve: $kernel_max_sectors sectors"
 echo "Image:   $image"

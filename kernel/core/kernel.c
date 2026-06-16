@@ -4,12 +4,14 @@
 #include <liquidos/debug.h>
 #include <liquidos/disk.h>
 #include <liquidos/framebuffer.h>
+#include <liquidos/gdt.h>
 #include <liquidos/fs.h>
 #include <liquidos/gfx.h>
 #include <liquidos/input.h>
 #include <liquidos/interrupts.h>
 #include <liquidos/io.h>
 #include <liquidos/lib.h>
+#include <liquidos/loader.h>
 #include <liquidos/pmm.h>
 #include <liquidos/process.h>
 #include <liquidos/ps2.h>
@@ -17,6 +19,9 @@
 #include <liquidos/serial.h>
 #include <liquidos/syscall.h>
 #include <liquidos/ui.h>
+#include <liquidos/vmm.h>
+
+extern u8 kernel_stack_top;
 
 static void vga_text_fallback(const char *message) {
     volatile u16 *vga = (volatile u16 *)0xB8000;
@@ -47,11 +52,14 @@ void kernel_main(const BootInfo *boot) {
     }
 
     pmm_init(boot);
+    gdt_init(&kernel_stack_top);
+    vmm_init();
     process_init();
     scheduler_init();
     syscall_init();
     disk_init();
     fs_init();
+    loader_init();
     app_store_init();
     app_init();
     input_queue_init();

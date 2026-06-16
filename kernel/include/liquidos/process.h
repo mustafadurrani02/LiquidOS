@@ -2,6 +2,7 @@
 #define LIQUIDOS_PROCESS_H
 
 #include <liquidos/types.h>
+#include <liquidos/vmm.h>
 
 typedef enum ProcessState {
     PROCESS_UNUSED = 0,
@@ -25,11 +26,16 @@ typedef struct Process {
     u64 user_base;
     u64 user_limit;
     u64 syscall_mask;
+    AddressSpace address_space;
+    u64 entry_rip;
+    u64 user_rsp;
+    i32 exit_code;
 } Process;
 
 void process_init(void);
 u32 process_spawn_kernel(const char *name);
-u32 process_spawn_user_stub(const char *name, u64 user_base, u64 user_limit, u64 syscall_mask);
+u32 process_spawn_user_stub(const char *name, AddressSpace address_space, u64 entry_rip, u64 user_rsp, u64 user_base, u64 user_limit, u64 syscall_mask);
+bool process_exit_current(i32 code);
 size_t process_count(void);
 const Process *process_get(size_t index);
 Process *process_current(void);

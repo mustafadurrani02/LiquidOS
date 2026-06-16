@@ -45,7 +45,7 @@ u32 process_spawn_kernel(const char *name) {
     return process->pid;
 }
 
-u32 process_spawn_user_stub(const char *name, u64 user_base, u64 user_limit, u64 syscall_mask) {
+u32 process_spawn_user_stub(const char *name, AddressSpace address_space, u64 entry_rip, u64 user_rsp, u64 user_base, u64 user_limit, u64 syscall_mask) {
     Process *process = allocate_process();
     if (!process) {
         return 0;
@@ -54,10 +54,24 @@ u32 process_spawn_user_stub(const char *name, u64 user_base, u64 user_limit, u64
     process->name[sizeof(process->name) - 1] = 0;
     process->state = PROCESS_READY;
     process->mode = PROCESS_USER;
+    process->address_space = address_space;
+    process->entry_rip = entry_rip;
+    process->user_rsp = user_rsp;
     process->user_base = user_base;
     process->user_limit = user_limit;
     process->syscall_mask = syscall_mask;
     return process->pid;
+}
+
+bool process_exit_current(i32 code) {
+    Process *process = process_current();
+    if (!process || process->mode == PROCESS_KERNEL) {
+        return false;
+    }
+    process->state = PROCESS_STOPPED;
+    process->exit_code = code;
+    process_set_current(1);
+    return true;
 }
 
 size_t process_count(void) {

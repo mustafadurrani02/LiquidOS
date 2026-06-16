@@ -75,6 +75,16 @@ bool process_exit_current(i32 code) {
     return true;
 }
 
+bool process_yield_current(void) {
+    Process *process = process_current();
+    if (!process || process->mode == PROCESS_KERNEL) {
+        return false;
+    }
+    process->state = PROCESS_READY;
+    process_set_current(1);
+    return true;
+}
+
 i32 process_open_current(const char *path) {
     Process *process = process_current();
     if (!process || !path || !fs_find(path)) {
@@ -233,6 +243,43 @@ const Process *process_get(size_t index) {
     return NULL;
 }
 
+Process *process_get_by_pid(u32 pid) {
+    for (size_t i = 0; i < MAX_PROCESSES; i++) {
+        if (processes[i].pid == pid && processes[i].state != PROCESS_UNUSED) {
+            return &processes[i];
+        }
+    }
+    return NULL;
+}
+
+Process *process_next_ready_user(u32 after_pid) {
+    Process *first = NULL;
+    bool choose_next = after_pid == 0;
+
+    for (size_t i = 0; i < MAX_PROCESSES; i++) {
+        Process *candidate = &processes[i];
+        if (candidate->pid == after_pid) {
+            choose_next = true;
+            continue;
+        }
+        if (candidate->state != PROCESS_READY || candidate->mode != PROCESS_USER) {
+            continue;
+        }
+        if (!first) {
+            first = candidate;
+        }
+        if (choose_next) {
+            return candidate;
+        }
+    }
+
+    return first;
+}
+
+bool process_has_ready_user(void) {
+    return process_next_ready_user(0) != NULL;
+}
+
 Process *process_current(void) {
     for (size_t i = 0; i < MAX_PROCESSES; i++) {
         if (processes[i].pid == current_pid) {
@@ -250,6 +297,9 @@ void process_set_current(u32 pid) {
     }
     for (size_t i = 0; i < MAX_PROCESSES; i++) {
         if (processes[i].pid == pid) {
+            if (processes[i].state == PROCESS_UNUSED || processes[i].state == PROCESS_STOPPED) {
+                return;
+            }
             processes[i].state = PROCESS_RUNNING;
             current_pid = pid;
             return;

@@ -14,7 +14,7 @@ It uses:
 - PS/2 mouse input
 - a simple desktop, taskbar, windows, terminal, file explorer placeholder, shutdown button, and reboot button
 - a native Liqueia browser shell with tabs, address input, bookmarks, history, and local pages
-- an interrupt-driven PIT timer, CPU exception reporting, syscall gate, process table, scheduler accounting, page-frame allocator, and VMM groundwork
+- an interrupt-driven PIT timer, CPU exception reporting, syscall gate, process table, cooperative user scheduling, page-frame allocator, and VMM groundwork
 - an offline app catalog that can install packaged demo apps into the LiquidOS filesystem
 - a larger 1120-sector kernel reserve in the fixed boot image
 
@@ -27,19 +27,38 @@ LiquidOS now has the first pieces of a real OS platform:
 - x86_64 IDT/PIC interrupt handling with a 100 Hz PIT timer
 - CPU exception diagnostics that report vector, error code, and RIP to serial
 - a GDT with kernel/user segments plus a TSS and dedicated ring-3 trap stack
-- scheduler ticks and a process table with kernel tasks plus saved user trap contexts
+- scheduler ticks and a process table with kernel tasks plus saved user trap contexts for cooperative `SYS_YIELD`
 - an `int 0x80` syscall gate with basic syscalls for write, exit, yield, PID, uptime ticks, filesystem open/read/write/close, spawning a user stub, and installing catalog apps
 - a 4 KiB page-frame allocator layered on the BIOS memory map
 - VMM helpers for page mapping, unmapping, user/kernel permissions, guard pages, per-process address-space records, and page-fault diagnostics
-- a simple `LAPP` loader that maps `APPS/HELLO.APP` into user memory, enters ring 3 with `iretq`, prints through `SYS_WRITE`, exits through `SYS_EXIT`, and returns to the kernel
+- a flat binary `LAPP` format with a validated header, text/data/bss/stack metadata, syscall mask, and built-in `HELLO`, `APP_A`, and `APP_B` demo apps
+- a `LAPP` loader that maps app text/data/bss into user memory, enters ring 3 with `iretq`, handles `SYS_WRITE`, `SYS_YIELD`, and `SYS_EXIT`, and returns safely to the kernel
 - per-process file descriptor tables for `open`, `read`, `write`, and `close`
-- terminal commands for `ps`, `spawn`, `runhello`, `syscall`, `apps`, and `download NAME`
+- terminal commands for `ps`, `spawn`, `runhello`, `runapps`, `syscall`, `apps`, and `download NAME`
 
 Keyboard and mouse input still use the stable PS/2 polling path while timer IRQs
 drive scheduler accounting. User processes now carry entry RIP, user RSP,
 address-space, guard-page, exit-code, syscall-mask, file descriptor, and saved
-trap-frame metadata. Timer-driven preemption between multiple ring-3 processes
-is the next scheduler boundary to cross.
+trap-frame metadata. Full timer-driven preemption and ELF loading are
+intentionally not implemented yet; the current app model is cooperative and
+uses the simpler flat `LAPP` binary format.
+
+### Flat LAPP Format
+
+`LAPP` files are binary app packages stored in LiquidFS. Version 1 contains:
+
+- magic/version/header size
+- entry offset inside text
+- text offset and size
+- data offset and size
+- bss size
+- requested stack size
+- syscall mask
+
+The loader validates the header, maps text executable/user, maps data and bss
+user-writable, creates a guarded user stack, and starts the app in ring 3.
+`runhello` runs `APPS/HELLO.APP`; `runapps` loads `APPS/APP_A.APP` and
+`APPS/APP_B.APP` and switches between them cooperatively through `SYS_YIELD`.
 
 ## Liqueia Browser
 

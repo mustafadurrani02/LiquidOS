@@ -72,6 +72,7 @@ void process_init(void);
 u32 process_spawn_kernel(const char *name);
 u32 process_spawn_user_stub(const char *name, AddressSpace address_space, u64 entry_rip, u64 user_rsp, u64 user_base, u64 user_limit, u64 syscall_mask);
 bool process_exit_current(i32 code);
+bool process_yield_current(void);
 i32 process_open_current(const char *path);
 i64 process_read_current(i32 fd, void *buffer, size_t buffer_size);
 i64 process_write_current(i32 fd, const char *contents);
@@ -80,6 +81,9 @@ void process_save_interrupt_frame(const InterruptFrame *frame);
 bool process_restore_interrupt_frame(InterruptFrame *frame, const Process *process);
 size_t process_count(void);
 const Process *process_get(size_t index);
+Process *process_get_by_pid(u32 pid);
+Process *process_next_ready_user(u32 after_pid);
+bool process_has_ready_user(void);
 Process *process_current(void);
 void process_set_current(u32 pid);
 

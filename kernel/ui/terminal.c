@@ -110,7 +110,7 @@ static void execute_command(const char *command) {
     terminal_write_line(prompt_line);
 
     if (strcmp(command, "help") == 0) {
-        terminal_write_line("Commands: help, clear, about, mem, ps, spawn, runhello, syscall");
+        terminal_write_line("Commands: help, clear, about, mem, ps, spawn, runhello, runapps, syscall");
         terminal_write_line("Files: ls, cat, touch, write, rm. Store: apps, download NAME.");
     } else if (strcmp(command, "clear") == 0) {
         line_count = 0;
@@ -154,6 +154,9 @@ static void execute_command(const char *command) {
         append_text(line, sizeof(line), loaded.ok ? "Loaded hello.app pid " : "Could not load hello.app: ");
         append_text(line, sizeof(line), loaded.ok ? pid_text : loaded.message);
         terminal_write_line(line);
+    } else if (strcmp(command, "runapps") == 0) {
+        LoadResult loaded = loader_run_apps("APPS/APP_A.APP", "APPS/APP_B.APP");
+        terminal_write_line(loaded.ok ? "Cooperative apps completed." : loaded.message);
     } else if (strcmp(command, "syscall") == 0) {
         char value[32];
         char line[TERMINAL_LINE_LENGTH];

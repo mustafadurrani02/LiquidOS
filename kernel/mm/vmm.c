@@ -5,6 +5,8 @@
 
 static AddressSpace kernel_space;
 
+#define VMM_PRIVATE_TABLE 0x200ULL
+
 static u64 read_cr3(void) {
     u64 value;
     __asm__ volatile("mov %%cr3, %0" : "=r"(value));
@@ -50,13 +52,13 @@ static u64 *ensure_private_next_table(u64 *table, u16 index, u64 flags) {
         if (!page) {
             return NULL;
         }
-        table[index] = ((u64)(uintptr_t)page) | VMM_PRESENT | VMM_WRITE | (flags & VMM_USER);
-    } else {
+        table[index] = ((u64)(uintptr_t)page) | VMM_PRESENT | VMM_WRITE | VMM_PRIVATE_TABLE | (flags & VMM_USER);
+    } else if ((table[index] & VMM_PRIVATE_TABLE) == 0) {
         u64 *copy = clone_table(table[index]);
         if (!copy) {
             return NULL;
         }
-        table[index] = table_phys(copy) | (table[index] & 0xFFFULL) | (flags & VMM_USER);
+        table[index] = table_phys(copy) | (table[index] & 0xFFFULL) | VMM_PRIVATE_TABLE | (flags & VMM_USER);
     }
     return phys_to_table(table[index]);
 }
@@ -73,7 +75,7 @@ static u64 *ensure_page_table(u64 *pd, u16 index, u64 virtual_address, u64 flags
         for (u32 i = 0; i < 512; i++) {
             pt[i] = base + (i * VMM_PAGE_SIZE) + inherited + VMM_PRESENT;
         }
-        pd[index] = table_phys(pt) | VMM_PRESENT | VMM_WRITE | (flags & VMM_USER);
+        pd[index] = table_phys(pt) | VMM_PRESENT | VMM_WRITE | VMM_PRIVATE_TABLE | (flags & VMM_USER);
         return pt;
     }
 

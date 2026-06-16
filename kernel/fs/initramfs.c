@@ -1,7 +1,10 @@
 #include <liquidos/fs.h>
 #include <liquidos/disk.h>
+#include <liquidos/loader.h>
 #include <liquidos/lib.h>
 #include <liquidos/serial.h>
+#include <liquidos/syscall.h>
+#include <liquidos/vmm.h>
 
 #define FS_MAX_FILES 24
 #define FS_DISK_MAGIC 0x53464C51U
@@ -45,6 +48,94 @@ static void set_file(size_t slot, const char *name, const char *contents) {
     files[slot].contents[FS_CONTENT_LENGTH - 1] = 0;
     files[slot].size = strlen(files[slot].contents);
     files[slot].used = true;
+}
+
+static void set_file_bytes(size_t slot, const char *name, const u8 *contents, size_t size) {
+    if (size > FS_CONTENT_LENGTH) {
+        size = FS_CONTENT_LENGTH;
+    }
+    strncpy(files[slot].name, name, FS_NAME_LENGTH - 1);
+    files[slot].name[FS_NAME_LENGTH - 1] = 0;
+    memset(files[slot].contents, 0, sizeof(files[slot].contents));
+    memcpy(files[slot].contents, contents, size);
+    files[slot].size = size;
+    files[slot].used = true;
+}
+
+static void write_u32(u8 *out, u32 value) {
+    out[0] = (u8)(value & 0xFF);
+    out[1] = (u8)((value >> 8) & 0xFF);
+    out[2] = (u8)((value >> 16) & 0xFF);
+    out[3] = (u8)((value >> 24) & 0xFF);
+}
+
+static void emit_mov_rax(u8 *out, size_t *index, u32 value) {
+    out[(*index)++] = 0x48;
+    out[(*index)++] = 0xC7;
+    out[(*index)++] = 0xC0;
+    write_u32(&out[*index], value);
+    *index += 4;
+}
+
+static void emit_write_message(u8 *out, size_t *index, u32 message_offset) {
+    emit_mov_rax(out, index, SYS_WRITE);
+    out[(*index)++] = 0x48;
+    out[(*index)++] = 0x8D;
+    out[(*index)++] = 0x1D;
+    write_u32(&out[*index], message_offset - (u32)(*index + 4));
+    *index += 4;
+    out[(*index)++] = 0xCD;
+    out[(*index)++] = 0x80;
+}
+
+static void emit_yield(u8 *out, size_t *index) {
+    emit_mov_rax(out, index, SYS_YIELD);
+    out[(*index)++] = 0xCD;
+    out[(*index)++] = 0x80;
+}
+
+static void emit_exit(u8 *out, size_t *index) {
+    emit_mov_rax(out, index, SYS_EXIT);
+    out[(*index)++] = 0x48;
+    out[(*index)++] = 0x31;
+    out[(*index)++] = 0xDB;
+    out[(*index)++] = 0xCD;
+    out[(*index)++] = 0x80;
+    out[(*index)++] = 0xEB;
+    out[(*index)++] = 0xFE;
+}
+
+static size_t build_lapp(u8 *out, const char *message, u32 repeats, bool yield_between) {
+    memset(out, 0, FS_CONTENT_LENGTH);
+
+    LappHeader *header = (LappHeader *)(void *)out;
+    memcpy(header->magic, LAPP_MAGIC, 4);
+    header->version = LAPP_VERSION;
+    header->header_size = sizeof(LappHeader);
+    header->entry_offset = 0;
+    header->text_offset = sizeof(LappHeader);
+    header->stack_size = VMM_PAGE_SIZE;
+    header->syscall_mask = (1ULL << SYS_WRITE) | (1ULL << SYS_EXIT) | (1ULL << SYS_YIELD) |
+                           (1ULL << SYS_GETPID) | (1ULL << SYS_TICKS);
+
+    u8 text[256];
+    memset(text, 0, sizeof(text));
+    size_t index = 0;
+    u32 body_size = repeats * (yield_between ? 25U : 16U) + 12U;
+    u32 message_offset = body_size;
+
+    for (u32 i = 0; i < repeats; i++) {
+        emit_write_message(text, &index, message_offset);
+        if (yield_between) {
+            emit_yield(text, &index);
+        }
+    }
+    emit_exit(text, &index);
+    memcpy(&text[message_offset], message, strlen(message) + 1);
+
+    header->text_size = message_offset + strlen(message) + 1;
+    memcpy(out + header->text_offset, text, (size_t)header->text_size);
+    return (size_t)(header->text_offset + header->text_size);
 }
 
 static u32 checksum_bytes(const u8 *data, size_t count) {
@@ -113,7 +204,14 @@ static void fs_load_defaults(void) {
     set_file(6, "WEB/HOME.HTML", "Liqueia native start page.");
     set_file(7, "WEB/DOCS.HTML", "Liqueia is ready for the future LiquidOS network stack.");
     set_file(8, "WEB/ABOUT.HTML", "Native port based on mustafadurrani02/Liqueia.");
-    set_file(9, "APPS/HELLO.APP", "LAPP\nname=hello.app\nentry=hello_main\nsyscalls=write,exit,yield,getpid,ticks\n");
+
+    u8 app[FS_CONTENT_LENGTH];
+    size_t size = build_lapp(app, "hello.app from flat LAPP format\n", 1, false);
+    set_file_bytes(9, "APPS/HELLO.APP", app, size);
+    size = build_lapp(app, "app A yielded from ring 3\n", 3, true);
+    set_file_bytes(10, "APPS/APP_A.APP", app, size);
+    size = build_lapp(app, "app B yielded from ring 3\n", 3, true);
+    set_file_bytes(11, "APPS/APP_B.APP", app, size);
 }
 
 void fs_init(void) {

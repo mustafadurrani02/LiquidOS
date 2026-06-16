@@ -18,6 +18,13 @@ u64 syscall_dispatch(InterruptFrame *frame) {
         return (u64)-1;
     }
 
+    Process *current = process_current();
+    if (current && current->mode == PROCESS_USER) {
+        if (frame->rax >= SYS_COUNT || ((current->syscall_mask & (1ULL << frame->rax)) == 0)) {
+            return (u64)-1;
+        }
+    }
+
     switch (frame->rax) {
     case SYS_WRITE:
         if (frame->rbx) {
@@ -34,7 +41,10 @@ u64 syscall_dispatch(InterruptFrame *frame) {
         }
         return 0;
     case SYS_YIELD:
-        scheduler_tick();
+        if ((frame->cs & 3) == 3 && process_yield_current()) {
+            vmm_switch(vmm_kernel_space());
+            user_return_to_kernel_now();
+        }
         return 0;
     case SYS_GETPID:
         return scheduler_current_pid();

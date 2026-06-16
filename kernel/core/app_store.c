@@ -4,9 +4,9 @@
 #include <liquidos/serial.h>
 
 static const StoreApp catalog[] = {
-    { "notes", "notes.lpkg", "Text notes app package", "APPS/NOTES.APP" },
-    { "paint", "paint.lpkg", "Simple drawing app package", "APPS/PAINT.APP" },
-    { "calc", "calc.lpkg", "Calculator app package", "APPS/CALC.APP" },
+    { "notes", "notes.lpkg", "Text notes app package", "APPS/NOTES.APP", "Productivity", "mint" },
+    { "paint", "paint.lpkg", "Simple drawing app package", "APPS/PAINT.APP", "Creative", "violet" },
+    { "calc", "calc.lpkg", "Calculator app package", "APPS/CALC.APP", "Utility", "gold" },
 };
 
 static void append_text(char *dest, size_t dest_size, const char *src) {
@@ -45,9 +45,19 @@ bool app_store_install_by_index(size_t index) {
     append_text(contents, sizeof(contents), app->package_name);
     append_text(contents, sizeof(contents), "\n");
     append_text(contents, sizeof(contents), app->description);
-    append_text(contents, sizeof(contents), "\nLaunch integration pending user-app ABI.");
+    append_text(contents, sizeof(contents), "\nCategory: ");
+    append_text(contents, sizeof(contents), app->category);
+    append_text(contents, sizeof(contents), "\nStatus: installed from the LiquidOS Store.");
 
-    return fs_write(app->installed_path, contents);
+    if (!fs_write(app->installed_path, contents)) {
+        return false;
+    }
+
+    char receipt[FS_NAME_LENGTH];
+    receipt[0] = 0;
+    append_text(receipt, sizeof(receipt), "STORE/INSTALLED/");
+    append_text(receipt, sizeof(receipt), app->name);
+    return fs_write(receipt, app->installed_path);
 }
 
 bool app_store_install(const char *name) {
@@ -57,4 +67,19 @@ bool app_store_install(const char *name) {
         }
     }
     return false;
+}
+
+bool app_store_is_installed(size_t index) {
+    const StoreApp *app = app_store_get(index);
+    return app && fs_find(app->installed_path) != NULL;
+}
+
+size_t app_store_installed_count(void) {
+    size_t count = 0;
+    for (size_t i = 0; i < app_store_count(); i++) {
+        if (app_store_is_installed(i)) {
+            count++;
+        }
+    }
+    return count;
 }

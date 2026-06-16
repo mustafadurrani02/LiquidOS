@@ -8,6 +8,8 @@ typedef struct StoreApp {
     const char *package_name;
     const char *description;
     const char *installed_path;
+    const char *category;
+    const char *accent;
 } StoreApp;
 
 void app_store_init(void);
@@ -15,5 +17,7 @@ size_t app_store_count(void);
 const StoreApp *app_store_get(size_t index);
 bool app_store_install_by_index(size_t index);
 bool app_store_install(const char *name);
+bool app_store_is_installed(size_t index);
+size_t app_store_installed_count(void);
 
 #endif

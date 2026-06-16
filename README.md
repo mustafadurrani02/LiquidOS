@@ -13,6 +13,7 @@ It uses:
 - PS/2 keyboard input
 - PS/2 mouse input
 - a simple desktop, taskbar, windows, terminal, file explorer placeholder, shutdown button, and reboot button
+- a graphical Store install flow and Personalize window with desktop themes
 - a native Liqueia browser shell with tabs, address input, bookmarks, history, and local pages
 - an interrupt-driven PIT timer, CPU exception reporting, syscall gate, process table, cooperative user scheduling, page-frame allocator, and VMM groundwork
 - an offline app catalog that can install packaged demo apps into the LiquidOS filesystem
@@ -35,6 +36,8 @@ LiquidOS now has the first pieces of a real OS platform:
 - a `LAPP` loader that maps app text/data/bss into user memory, enters ring 3 with `iretq`, handles `SYS_WRITE`, `SYS_YIELD`, and `SYS_EXIT`, and returns safely to the kernel
 - per-process file descriptor tables for `open`, `read`, `write`, and `close`
 - terminal commands for `ps`, `spawn`, `runhello`, `runapps`, `syscall`, `apps`, and `download NAME`
+- a graphical Store window that installs offline catalog packages into LiquidFS and shows installed status
+- desktop customization through the Personalize window with Liquid Gold, Aurora Blue, Glass Mint, and Night Violet themes
 
 Keyboard and mouse input still use the stable PS/2 polling path while timer IRQs
 drive scheduler accounting. User processes now carry entry RIP, user RSP,
@@ -59,6 +62,18 @@ The loader validates the header, maps text executable/user, maps data and bss
 user-writable, creates a guarded user stack, and starts the app in ring 3.
 `runhello` runs `APPS/HELLO.APP`; `runapps` loads `APPS/APP_A.APP` and
 `APPS/APP_B.APP` and switches between them cooperatively through `SYS_YIELD`.
+
+## Store and Personalization
+
+The LiquidOS Store is currently an offline package catalog. It installs package
+receipts and app files into LiquidFS, marks installed apps in the Store UI, and
+keeps the terminal `apps` and `download NAME` commands in sync with the same
+catalog. Networking, remote package download, signatures, and dependency
+resolution are intentionally deferred.
+
+The Personalize window changes the desktop theme immediately. Themes tint the
+wallpaper wash, active window glow, Store cards, and dock accents without
+rebuilding the OS.
 
 ## Liqueia Browser
 

@@ -1,4 +1,5 @@
 #include <liquidos/fs.h>
+#include <liquidos/app_store.h>
 #include <liquidos/gfx.h>
 #include <liquidos/input.h>
 #include <liquidos/io.h>
@@ -15,7 +16,9 @@ typedef enum WindowKind {
     WINDOW_TERMINAL = 0,
     WINDOW_BROWSER = 1,
     WINDOW_FILES = 2,
-    WINDOW_COUNT = 3
+    WINDOW_STORE = 3,
+    WINDOW_SETTINGS = 4,
+    WINDOW_COUNT = 5
 } WindowKind;
 
 typedef struct Window {
@@ -46,6 +49,22 @@ typedef struct TaskbarLayout {
     i32 search_h;
 } TaskbarLayout;
 
+typedef struct DesktopTheme {
+    const char *name;
+    Color wash_top;
+    Color wash_bottom;
+    Color accent;
+    Color panel;
+    Color text;
+} DesktopTheme;
+
+static const DesktopTheme themes[] = {
+    { "Liquid Gold", RGB(255, 208, 96), RGB(24, 18, 34), RGB(244, 184, 64), RGB(248, 245, 235), RGB(31, 34, 42) },
+    { "Aurora Blue", RGB(70, 198, 255), RGB(13, 25, 59), RGB(104, 207, 255), RGB(236, 246, 255), RGB(24, 36, 56) },
+    { "Glass Mint", RGB(126, 244, 194), RGB(14, 44, 50), RGB(87, 220, 170), RGB(239, 252, 248), RGB(23, 50, 47) },
+    { "Night Violet", RGB(180, 116, 255), RGB(20, 16, 42), RGB(190, 136, 255), RGB(245, 240, 255), RGB(38, 28, 60) },
+};
+
 static Window windows[WINDOW_COUNT];
 static WindowKind z_order[WINDOW_COUNT];
 static WindowKind focused_window = WINDOW_TERMINAL;
@@ -75,6 +94,7 @@ static i32 previous_mouse_y = 240;
 static i32 hover_zone = -1;
 static i32 selected_file_index = 0;
 static u32 new_file_counter = 1;
+static size_t current_theme = 0;
 
 static i32 taskbar_x(void) {
     i32 screen_w = (i32)gfx_width();
@@ -111,7 +131,7 @@ static void taskbar_layout(TaskbarLayout *layout) {
 
     layout->slot_size = compact ? 48 : 58;
     layout->slot_step = compact ? 70 : 86;
-    layout->slots_available = 2;
+    layout->slots_available = 4;
     layout->search_w = compact ? 230 : 332;
     layout->search_h = compact ? 42 : 58;
     layout->search_y = compact ? layout->y + (layout->h - layout->search_h) / 2 : layout->y + 10;
@@ -328,6 +348,12 @@ static void handle_taskbar_click(void) {
     } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step, bar.slot_y, bar.slot_size, bar.slot_size)) {
         open_window(WINDOW_FILES);
         set_taskbar_message("FILES");
+    } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step * 2, bar.slot_y, bar.slot_size, bar.slot_size)) {
+        open_window(WINDOW_STORE);
+        set_taskbar_message("STORE");
+    } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step * 3, bar.slot_y, bar.slot_size, bar.slot_size)) {
+        open_window(WINDOW_SETTINGS);
+        set_taskbar_message("PERSONALIZE");
     } else if (point_in_rect(mouse_x, mouse_y, bar.search_x, bar.search_y, bar.search_w, bar.search_h)) {
         open_window(WINDOW_BROWSER);
         set_taskbar_message("SEARCH LOCAL WEB");
@@ -414,6 +440,41 @@ static void handle_browser_click(const Window *window) {
     mark_dirty_rect(window->x, window->y, window->width, window->height);
 }
 
+static void handle_store_click(const Window *window) {
+    i32 x = window->x + 6;
+    i32 y = window->y + 30;
+    i32 card_y = y + 68;
+
+    for (size_t i = 0; i < app_store_count(); i++) {
+        i32 row_y = card_y + (i32)i * 86;
+        if (point_in_rect(mouse_x, mouse_y, x + window->width - 150, row_y + 24, 96, 30)) {
+            if (app_store_install_by_index(i)) {
+                set_taskbar_message("APP INSTALLED");
+            } else {
+                set_taskbar_message("INSTALL FAILED");
+            }
+            mark_dirty_rect(window->x, window->y, window->width, window->height);
+            return;
+        }
+    }
+}
+
+static void handle_settings_click(const Window *window) {
+    i32 x = window->x + 6;
+    i32 y = window->y + 30;
+    i32 start_y = y + 78;
+
+    for (size_t i = 0; i < sizeof(themes) / sizeof(themes[0]); i++) {
+        i32 row_y = start_y + (i32)i * 52;
+        if (point_in_rect(mouse_x, mouse_y, x + 18, row_y, window->width - 48, 42)) {
+            current_theme = i;
+            set_taskbar_message(themes[i].name);
+            mark_dirty_full();
+            return;
+        }
+    }
+}
+
 static void handle_window_click(void) {
     for (int z = WINDOW_COUNT - 1; z >= 0; z--) {
         WindowKind kind = z_order[z];
@@ -459,6 +520,10 @@ static void handle_window_click(void) {
                 handle_files_click(window);
             } else if (kind == WINDOW_BROWSER) {
                 handle_browser_click(window);
+            } else if (kind == WINDOW_STORE) {
+                handle_store_click(window);
+            } else if (kind == WINDOW_SETTINGS) {
+                handle_settings_click(window);
             }
         }
 
@@ -525,16 +590,25 @@ static void draw_app_slot(i32 x, i32 y, i32 size, bool active, bool hovered) {
 }
 
 static void draw_background(void) {
+    const DesktopTheme *theme = &themes[current_theme];
     gfx_draw_wallpaper();
+    gfx_fill_round_rect_plain_alpha(-80, -60, (i32)gfx_width() + 160, (i32)gfx_height() / 2, 0, theme->wash_top, 26);
+    gfx_fill_round_rect_plain_alpha(-80, (i32)gfx_height() / 2, (i32)gfx_width() + 160, (i32)gfx_height() / 2 + 90, 0, theme->wash_bottom, 34);
+    gfx_fill_circle_alpha((i32)gfx_width() - 120, 150, 160, theme->accent, 42);
+    gfx_fill_circle_alpha(120, (i32)gfx_height() - 120, 140, theme->wash_top, 34);
 }
 
 static void draw_window_frame(const Window *window, bool focused) {
+    const DesktopTheme *theme = &themes[current_theme];
     Color shadow = RGB(6, 9, 13);
-    Color body = RGB(240, 243, 246);
-    Color title = focused ? RGB(28, 38, 48) : RGB(66, 75, 84);
-    Color border = focused ? RGB(140, 174, 202) : RGB(120, 132, 140);
+    Color body = theme->panel;
+    Color title = focused ? theme->text : RGB(66, 75, 84);
+    Color border = focused ? theme->accent : RGB(120, 132, 140);
 
     gfx_fill_round_rect_alpha(window->x + 8, window->y + 10, window->width, window->height, 12, shadow, 110);
+    if (focused) {
+        gfx_fill_round_rect_alpha(window->x - 4, window->y - 4, window->width + 8, window->height + 8, 16, theme->accent, 30);
+    }
     gfx_fill_round_rect(window->x, window->y, window->width, window->height, 12, body);
     gfx_draw_round_rect(window->x, window->y, window->width, window->height, 12, border);
     gfx_fill_round_rect(window->x + 1, window->y + 1, window->width - 2, 28, 11, title);
@@ -603,6 +677,66 @@ static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
     }
 }
 
+static void draw_store_window(i32 x, i32 y, i32 width, i32 height) {
+    const DesktopTheme *theme = &themes[current_theme];
+    gfx_fill_rect(x, y, width, height, RGB(245, 248, 252));
+    gfx_fill_round_rect_alpha(x + 14, y + 14, width - 28, 46, 16, theme->accent, 52);
+    gfx_draw_text(x + 28, y + 25, "LiquidOS Store", theme->text, 2);
+
+    char summary[48];
+    char count[16];
+    u64_to_dec(app_store_installed_count(), count, sizeof(count));
+    summary[0] = 0;
+    append_text(summary, sizeof(summary), count);
+    append_text(summary, sizeof(summary), " installed");
+    gfx_draw_text(x + width - 150, y + 30, summary, RGB(63, 74, 84), 1);
+
+    i32 card_y = y + 68;
+    for (size_t i = 0; i < app_store_count(); i++) {
+        const StoreApp *app = app_store_get(i);
+        if (!app) {
+            continue;
+        }
+
+        bool installed = app_store_is_installed(i);
+        i32 row_y = card_y + (i32)i * 86;
+        Color card = installed ? RGB(235, 249, 241) : RGB(255, 255, 255);
+        gfx_fill_round_rect_alpha(x + 16, row_y, width - 32, 72, 16, RGB(0, 0, 0), 28);
+        gfx_fill_round_rect(x + 14, row_y - 2, width - 32, 72, 16, card);
+        gfx_fill_round_rect_alpha(x + 28, row_y + 13, 42, 42, 14, theme->accent, 145);
+        gfx_draw_text(x + 42, row_y + 24, app->name, RGB(255, 255, 255), 1);
+        gfx_draw_text(x + 84, row_y + 12, app->package_name, theme->text, 1);
+        gfx_draw_text(x + 84, row_y + 30, app->description, RGB(72, 82, 92), 1);
+        gfx_draw_text(x + 84, row_y + 48, app->category, RGB(104, 114, 124), 1);
+
+        i32 button_x = x + width - 156;
+        gfx_fill_round_rect_alpha(button_x, row_y + 22, 96, 30, 11, installed ? RGB(68, 160, 104) : theme->accent, 230);
+        gfx_draw_text(button_x + 16, row_y + 31, installed ? "INSTALLED" : "INSTALL", RGB(255, 255, 255), 1);
+    }
+}
+
+static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
+    const DesktopTheme *theme = &themes[current_theme];
+    gfx_fill_rect(x, y, width, height, RGB(247, 249, 252));
+    gfx_draw_text(x + 22, y + 22, "Personalize LiquidOS", theme->text, 2);
+    gfx_draw_text(x + 24, y + 52, "Choose a desktop mood. It updates instantly.", RGB(82, 94, 104), 1);
+
+    i32 start_y = y + 78;
+    for (size_t i = 0; i < sizeof(themes) / sizeof(themes[0]); i++) {
+        const DesktopTheme *choice = &themes[i];
+        i32 row_y = start_y + (i32)i * 52;
+        bool selected = i == current_theme;
+        gfx_fill_round_rect_alpha(x + 18, row_y, width - 48, 42, 14, selected ? choice->accent : RGB(255, 255, 255), selected ? 70 : 235);
+        gfx_draw_round_rect(x + 18, row_y, width - 48, 42, 14, selected ? choice->accent : RGB(214, 222, 230));
+        gfx_fill_round_rect_alpha(x + 32, row_y + 9, 24, 24, 9, choice->wash_top, 230);
+        gfx_fill_round_rect_alpha(x + 50, row_y + 9, 24, 24, 9, choice->wash_bottom, 210);
+        gfx_draw_text(x + 88, row_y + 14, choice->name, choice->text, 1);
+        if (selected) {
+            gfx_draw_text(x + width - 110, row_y + 14, "ACTIVE", choice->text, 1);
+        }
+    }
+}
+
 static void draw_window(WindowKind kind) {
     Window *window = &windows[kind];
     if (!window->open) {
@@ -621,8 +755,12 @@ static void draw_window(WindowKind kind) {
         terminal_render(content_x, content_y, content_w, content_h, focused);
     } else if (kind == WINDOW_BROWSER) {
         liqueia_render(content_x, content_y, content_w, content_h);
-    } else {
+    } else if (kind == WINDOW_FILES) {
         draw_file_explorer(content_x, content_y, content_w, content_h);
+    } else if (kind == WINDOW_STORE) {
+        draw_store_window(content_x, content_y, content_w, content_h);
+    } else if (kind == WINDOW_SETTINGS) {
+        draw_settings_window(content_x, content_y, content_w, content_h);
     }
 }
 
@@ -653,13 +791,23 @@ static void draw_taskbar(void) {
 
     for (i32 i = 0; i < bar.slots_available; i++) {
         bool active = (i == 0 && focused_window == WINDOW_BROWSER && windows[WINDOW_BROWSER].open) ||
-                      (i == 1 && focused_window == WINDOW_FILES && windows[WINDOW_FILES].open);
+                      (i == 1 && focused_window == WINDOW_FILES && windows[WINDOW_FILES].open) ||
+                      (i == 2 && focused_window == WINDOW_STORE && windows[WINDOW_STORE].open) ||
+                      (i == 3 && focused_window == WINDOW_SETTINGS && windows[WINDOW_SETTINGS].open);
         draw_app_slot(bar.slot_x + i * bar.slot_step, bar.slot_y, bar.slot_size, active, false);
     }
     gfx_draw_argb8888_image_scaled(bar.slot_x + 1, bar.slot_y + 1, app_size, app_size,
                                    app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT);
     gfx_draw_argb8888_image_scaled(bar.slot_x + bar.slot_step + 1, bar.slot_y + 1, app_size, app_size,
                                    app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT);
+    i32 store_x = bar.slot_x + bar.slot_step * 2;
+    i32 settings_x = bar.slot_x + bar.slot_step * 3;
+    gfx_fill_round_rect_alpha(store_x + 9, bar.slot_y + 11, app_size - 16, app_size - 18, 12, themes[current_theme].accent, 235);
+    gfx_draw_line(store_x + 18, bar.slot_y + 19, store_x + app_size - 16, bar.slot_y + 19, RGB(255, 255, 255));
+    gfx_draw_text(store_x + 18, bar.slot_y + 30, "GET", RGB(255, 255, 255), 1);
+    gfx_fill_round_rect_alpha(settings_x + 10, bar.slot_y + 10, app_size - 18, app_size - 18, 16, RGB(238, 242, 248), 238);
+    gfx_fill_circle(settings_x + app_size / 2, bar.slot_y + app_size / 2, 13, themes[current_theme].accent);
+    gfx_fill_circle(settings_x + app_size / 2, bar.slot_y + app_size / 2, 5, RGB(20, 24, 30));
 
     gfx_fill_round_rect_plain_alpha(bar.search_x + 3, bar.search_y + 4, bar.search_w, bar.search_h, bar.search_h / 2, RGB(0, 0, 0), 80);
     gfx_fill_round_rect_plain_alpha(bar.search_x, bar.search_y, bar.search_w, bar.search_h, bar.search_h / 2, RGB(56, 56, 57), 255);
@@ -685,20 +833,28 @@ void ui_init(const BootInfo *boot) {
     windows[WINDOW_TERMINAL] = (Window){ 90, 160, 720, 410, "Terminal", false, false };
     windows[WINDOW_BROWSER] = (Window){ 180, 180, 820, 500, "Liqueia", false, false };
     windows[WINDOW_FILES] = (Window){ 320, 260, 660, 400, "Files", false, false };
+    windows[WINDOW_STORE] = (Window){ 240, 170, 720, 430, "Store", false, false };
+    windows[WINDOW_SETTINGS] = (Window){ 280, 210, 620, 360, "Personalize", false, false };
 
     if (screen_w < 800) {
         windows[WINDOW_TERMINAL] = (Window){ 25, 100, screen_w - 50, 310, "Terminal", false, false };
         windows[WINDOW_BROWSER] = (Window){ 40, 120, screen_w - 80, 320, "Liqueia", false, false };
         windows[WINDOW_FILES] = (Window){ 55, 140, screen_w - 110, 270, "Files", false, false };
+        windows[WINDOW_STORE] = (Window){ 35, 110, screen_w - 70, 330, "Store", false, false };
+        windows[WINDOW_SETTINGS] = (Window){ 45, 130, screen_w - 90, 310, "Personalize", false, false };
     }
 
     clamp_window(&windows[WINDOW_TERMINAL]);
     clamp_window(&windows[WINDOW_BROWSER]);
     clamp_window(&windows[WINDOW_FILES]);
+    clamp_window(&windows[WINDOW_STORE]);
+    clamp_window(&windows[WINDOW_SETTINGS]);
 
     z_order[0] = WINDOW_TERMINAL;
     z_order[1] = WINDOW_FILES;
-    z_order[2] = WINDOW_BROWSER;
+    z_order[2] = WINDOW_STORE;
+    z_order[3] = WINDOW_SETTINGS;
+    z_order[4] = WINDOW_BROWSER;
     focused_window = WINDOW_BROWSER;
     terminal_init();
     liqueia_init();

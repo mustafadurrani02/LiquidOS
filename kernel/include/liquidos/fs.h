@@ -20,6 +20,7 @@ const FsFile *fs_find(const char *name);
 i32 fs_find_index(const char *name);
 bool fs_create(const char *name);
 bool fs_write(const char *name, const char *contents);
+bool fs_write_bytes(const char *name, const u8 *contents, size_t size);
 bool fs_delete(const char *name);
 
 #endif

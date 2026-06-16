@@ -308,6 +308,34 @@ bool fs_write(const char *name, const char *contents) {
     return false;
 }
 
+bool fs_write_bytes(const char *name, const u8 *contents, size_t size) {
+    if (!valid_name(name) || !contents) {
+        return false;
+    }
+    if (size > FS_CONTENT_LENGTH) {
+        size = FS_CONTENT_LENGTH;
+    }
+
+    for (size_t i = 0; i < FS_MAX_FILES; i++) {
+        if (files[i].used && strcmp(files[i].name, name) == 0) {
+            memset(files[i].contents, 0, sizeof(files[i].contents));
+            memcpy(files[i].contents, contents, size);
+            files[i].size = size;
+            fs_save_to_disk();
+            return true;
+        }
+    }
+
+    for (size_t i = 0; i < FS_MAX_FILES; i++) {
+        if (!files[i].used) {
+            set_file_bytes(i, name, contents, size);
+            fs_save_to_disk();
+            return true;
+        }
+    }
+    return false;
+}
+
 bool fs_delete(const char *name) {
     for (size_t i = 0; i < FS_MAX_FILES; i++) {
         if (files[i].used && strcmp(files[i].name, name) == 0) {

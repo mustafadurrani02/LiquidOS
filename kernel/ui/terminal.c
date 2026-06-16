@@ -177,7 +177,7 @@ static void execute_command(const char *command) {
                 char line[TERMINAL_LINE_LENGTH];
                 line[0] = 0;
                 append_text(line, sizeof(line), app->name);
-                append_text(line, sizeof(line), " - ");
+                append_text(line, sizeof(line), app_store_is_installed(i) ? " [installed] - " : " - ");
                 append_text(line, sizeof(line), app->description);
                 terminal_write_line(line);
             }

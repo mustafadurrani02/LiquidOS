@@ -18,7 +18,9 @@ typedef enum WindowKind {
     WINDOW_FILES = 2,
     WINDOW_STORE = 3,
     WINDOW_SETTINGS = 4,
-    WINDOW_COUNT = 5
+    WINDOW_LAUNCHER = 5,
+    WINDOW_APP_VIEW = 6,
+    WINDOW_COUNT = 7
 } WindowKind;
 
 typedef struct Window {
@@ -95,6 +97,7 @@ static i32 hover_zone = -1;
 static i32 selected_file_index = 0;
 static u32 new_file_counter = 1;
 static size_t current_theme = 0;
+static size_t selected_store_app = 0;
 
 static i32 taskbar_x(void) {
     i32 screen_w = (i32)gfx_width();
@@ -355,8 +358,8 @@ static void handle_taskbar_click(void) {
         open_window(WINDOW_SETTINGS);
         set_taskbar_message("PERSONALIZE");
     } else if (point_in_rect(mouse_x, mouse_y, bar.search_x, bar.search_y, bar.search_w, bar.search_h)) {
-        open_window(WINDOW_BROWSER);
-        set_taskbar_message("SEARCH LOCAL WEB");
+        open_window(WINDOW_LAUNCHER);
+        set_taskbar_message("APP LAUNCHER");
     }
 }
 
@@ -447,13 +450,30 @@ static void handle_store_click(const Window *window) {
 
     for (size_t i = 0; i < app_store_count(); i++) {
         i32 row_y = card_y + (i32)i * 86;
-        if (point_in_rect(mouse_x, mouse_y, x + window->width - 150, row_y + 24, 96, 30)) {
-            if (app_store_install_by_index(i)) {
+        bool installed = app_store_is_installed(i);
+        i32 primary_x = x + window->width - 190;
+        i32 remove_x = x + window->width - 108;
+        if (point_in_rect(mouse_x, mouse_y, primary_x, row_y + 22, 76, 30)) {
+            if (installed) {
+                selected_store_app = i;
+                open_window(WINDOW_APP_VIEW);
+                set_taskbar_message("APP OPENED");
+            } else if (app_store_install_by_index(i)) {
                 set_taskbar_message("APP INSTALLED");
             } else {
                 set_taskbar_message("INSTALL FAILED");
             }
             mark_dirty_rect(window->x, window->y, window->width, window->height);
+            return;
+        }
+        if (installed && point_in_rect(mouse_x, mouse_y, remove_x, row_y + 22, 78, 30)) {
+            if (app_store_uninstall_by_index(i)) {
+                set_taskbar_message("APP REMOVED");
+            } else {
+                set_taskbar_message("REMOVE FAILED");
+            }
+            mark_dirty_rect(window->x, window->y, window->width, window->height);
+            mark_dirty_window(WINDOW_LAUNCHER);
             return;
         }
     }
@@ -469,9 +489,62 @@ static void handle_settings_click(const Window *window) {
         if (point_in_rect(mouse_x, mouse_y, x + 18, row_y, window->width - 48, 42)) {
             current_theme = i;
             set_taskbar_message(themes[i].name);
+            char theme_id[2];
+            theme_id[0] = (char)('0' + i);
+            theme_id[1] = 0;
+            fs_write("SYSTEM/THEME.TXT", theme_id);
             mark_dirty_full();
             return;
         }
+    }
+}
+
+static void load_theme_setting(void) {
+    const FsFile *theme_file = fs_find("SYSTEM/THEME.TXT");
+    if (!theme_file || theme_file->size == 0) {
+        return;
+    }
+
+    char selected = theme_file->contents[0];
+    if (selected >= '0' && selected < (char)('0' + (sizeof(themes) / sizeof(themes[0])))) {
+        current_theme = (size_t)(selected - '0');
+    }
+}
+
+static void handle_launcher_click(const Window *window) {
+    i32 x = window->x + 6;
+    i32 y = window->y + 30;
+    i32 tile_y = y + 72;
+
+    for (i32 i = 0; i < 3; i++) {
+        i32 tile_x = x + 22 + i * 132;
+        if (point_in_rect(mouse_x, mouse_y, tile_x, tile_y, 112, 82)) {
+            if (i == 0) {
+                open_window(WINDOW_BROWSER);
+            } else if (i == 1) {
+                open_window(WINDOW_FILES);
+            } else {
+                open_window(WINDOW_TERMINAL);
+            }
+            set_taskbar_message("APP OPENED");
+            return;
+        }
+    }
+
+    i32 installed_y = tile_y + 122;
+    size_t visible = 0;
+    for (size_t i = 0; i < app_store_count(); i++) {
+        if (!app_store_is_installed(i)) {
+            continue;
+        }
+        i32 row_y = installed_y + (i32)visible * 44;
+        if (point_in_rect(mouse_x, mouse_y, x + 22, row_y, window->width - 56, 36)) {
+            selected_store_app = i;
+            open_window(WINDOW_APP_VIEW);
+            set_taskbar_message("APP OPENED");
+            return;
+        }
+        visible++;
     }
 }
 
@@ -524,6 +597,8 @@ static void handle_window_click(void) {
                 handle_store_click(window);
             } else if (kind == WINDOW_SETTINGS) {
                 handle_settings_click(window);
+            } else if (kind == WINDOW_LAUNCHER) {
+                handle_launcher_click(window);
             }
         }
 
@@ -705,14 +780,102 @@ static void draw_store_window(i32 x, i32 y, i32 width, i32 height) {
         gfx_fill_round_rect(x + 14, row_y - 2, width - 32, 72, 16, card);
         gfx_fill_round_rect_alpha(x + 28, row_y + 13, 42, 42, 14, theme->accent, 145);
         gfx_draw_text(x + 42, row_y + 24, app->name, RGB(255, 255, 255), 1);
-        gfx_draw_text(x + 84, row_y + 12, app->package_name, theme->text, 1);
+        gfx_draw_text(x + 84, row_y + 12, app->display_name, theme->text, 1);
         gfx_draw_text(x + 84, row_y + 30, app->description, RGB(72, 82, 92), 1);
         gfx_draw_text(x + 84, row_y + 48, app->category, RGB(104, 114, 124), 1);
 
-        i32 button_x = x + width - 156;
-        gfx_fill_round_rect_alpha(button_x, row_y + 22, 96, 30, 11, installed ? RGB(68, 160, 104) : theme->accent, 230);
-        gfx_draw_text(button_x + 16, row_y + 31, installed ? "INSTALLED" : "INSTALL", RGB(255, 255, 255), 1);
+        i32 primary_x = x + width - 190;
+        i32 remove_x = x + width - 108;
+        gfx_fill_round_rect_alpha(primary_x, row_y + 22, 76, 30, 11, installed ? RGB(68, 160, 104) : theme->accent, 230);
+        gfx_draw_text(primary_x + 18, row_y + 31, installed ? "OPEN" : "INSTALL", RGB(255, 255, 255), 1);
+        if (installed) {
+            gfx_fill_round_rect_alpha(remove_x, row_y + 22, 78, 30, 11, RGB(180, 74, 82), 218);
+            gfx_draw_text(remove_x + 13, row_y + 31, "REMOVE", RGB(255, 255, 255), 1);
+        }
     }
+}
+
+static void draw_launcher_tile(i32 x, i32 y, const char *name, const char *kind, Color accent) {
+    gfx_fill_round_rect_alpha(x + 3, y + 4, 112, 82, 18, RGB(0, 0, 0), 32);
+    gfx_fill_round_rect(x, y, 112, 82, 18, RGB(255, 255, 255));
+    gfx_fill_round_rect_alpha(x + 34, y + 12, 44, 34, 14, accent, 220);
+    gfx_draw_text(x + 18, y + 54, name, RGB(35, 43, 52), 1);
+    gfx_draw_text(x + 18, y + 68, kind, RGB(100, 110, 120), 1);
+}
+
+static void draw_launcher_window(i32 x, i32 y, i32 width, i32 height) {
+    const DesktopTheme *theme = &themes[current_theme];
+    gfx_fill_rect(x, y, width, height, RGB(246, 248, 252));
+    gfx_draw_text(x + 22, y + 22, "Launch Apps", theme->text, 2);
+    gfx_draw_text(x + 24, y + 52, "Built-in tools and installed Store apps.", RGB(82, 94, 104), 1);
+
+    i32 tile_y = y + 72;
+    draw_launcher_tile(x + 22, tile_y, "Liqueia", "built-in", RGB(217, 164, 75));
+    draw_launcher_tile(x + 154, tile_y, "Files", "built-in", RGB(100, 172, 230));
+    draw_launcher_tile(x + 286, tile_y, "Terminal", "built-in", RGB(80, 210, 150));
+
+    i32 installed_y = tile_y + 122;
+    gfx_draw_text(x + 24, installed_y - 24, "Installed apps", theme->text, 1);
+    size_t visible = 0;
+    for (size_t i = 0; i < app_store_count(); i++) {
+        if (!app_store_is_installed(i)) {
+            continue;
+        }
+        const StoreApp *app = app_store_get(i);
+        i32 row_y = installed_y + (i32)visible * 44;
+        gfx_fill_round_rect_alpha(x + 22, row_y, width - 56, 36, 12, RGB(255, 255, 255), 235);
+        gfx_fill_round_rect_alpha(x + 34, row_y + 8, 20, 20, 8, theme->accent, 210);
+        gfx_draw_text(x + 66, row_y + 10, app->display_name, theme->text, 1);
+        gfx_draw_text(x + width - 130, row_y + 10, "OPEN", RGB(72, 120, 92), 1);
+        visible++;
+    }
+    if (visible == 0) {
+        gfx_draw_text(x + 28, installed_y + 8, "Install apps from the Store to see them here.", RGB(92, 104, 116), 1);
+    }
+}
+
+static void draw_app_view_window(i32 x, i32 y, i32 width, i32 height) {
+    const DesktopTheme *theme = &themes[current_theme];
+    const StoreApp *app = app_store_get(selected_store_app);
+    gfx_fill_rect(x, y, width, height, RGB(248, 250, 253));
+    if (!app) {
+        gfx_draw_text(x + 22, y + 22, "No app selected", theme->text, 2);
+        return;
+    }
+
+    gfx_fill_round_rect_alpha(x + 20, y + 20, 58, 58, 18, theme->accent, 220);
+    gfx_draw_text(x + 96, y + 24, app->display_name, theme->text, 2);
+    gfx_draw_text(x + 98, y + 56, app->description, RGB(78, 90, 102), 1);
+
+    const FsFile *manifest = fs_find(app_store_manifest_path(selected_store_app));
+    gfx_fill_round_rect_alpha(x + 22, y + 102, width - 44, height - 126, 14, RGB(255, 255, 255), 235);
+    gfx_draw_text(x + 38, y + 118, "Manifest", theme->text, 1);
+    if (manifest) {
+        char line[96];
+        size_t used = 0;
+        i32 line_y = y + 142;
+        const char *text = manifest->contents;
+        while (*text && line_y < y + height - 58) {
+            if (*text == '\n' || used + 1 >= sizeof(line)) {
+                line[used] = 0;
+                gfx_draw_text(x + 38, line_y, line, RGB(60, 70, 80), 1);
+                line_y += 18;
+                used = 0;
+                if (*text == '\n') {
+                    text++;
+                }
+                continue;
+            }
+            line[used++] = *text++;
+        }
+        if (used > 0 && line_y < y + height - 58) {
+            line[used] = 0;
+            gfx_draw_text(x + 38, line_y, line, RGB(60, 70, 80), 1);
+        }
+    } else {
+        gfx_draw_text(x + 38, y + 142, "App is not installed.", RGB(120, 72, 78), 1);
+    }
+    gfx_draw_text(x + 38, y + height - 38, "Runtime launchers for Store apps are next; built-ins open from Launch Apps.", RGB(93, 103, 113), 1);
 }
 
 static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
@@ -761,6 +924,10 @@ static void draw_window(WindowKind kind) {
         draw_store_window(content_x, content_y, content_w, content_h);
     } else if (kind == WINDOW_SETTINGS) {
         draw_settings_window(content_x, content_y, content_w, content_h);
+    } else if (kind == WINDOW_LAUNCHER) {
+        draw_launcher_window(content_x, content_y, content_w, content_h);
+    } else if (kind == WINDOW_APP_VIEW) {
+        draw_app_view_window(content_x, content_y, content_w, content_h);
     }
 }
 
@@ -829,12 +996,15 @@ void ui_init(const BootInfo *boot) {
 
     update_clock_text();
     gfx_prepare_wallpaper_rgb565(background_image_rgb565, BACKGROUND_IMAGE_WIDTH, BACKGROUND_IMAGE_HEIGHT);
+    load_theme_setting();
 
     windows[WINDOW_TERMINAL] = (Window){ 90, 160, 720, 410, "Terminal", false, false };
     windows[WINDOW_BROWSER] = (Window){ 180, 180, 820, 500, "Liqueia", false, false };
     windows[WINDOW_FILES] = (Window){ 320, 260, 660, 400, "Files", false, false };
     windows[WINDOW_STORE] = (Window){ 240, 170, 720, 430, "Store", false, false };
     windows[WINDOW_SETTINGS] = (Window){ 280, 210, 620, 360, "Personalize", false, false };
+    windows[WINDOW_LAUNCHER] = (Window){ 260, 150, 600, 410, "Launch Apps", false, false };
+    windows[WINDOW_APP_VIEW] = (Window){ 300, 190, 620, 390, "App", false, false };
 
     if (screen_w < 800) {
         windows[WINDOW_TERMINAL] = (Window){ 25, 100, screen_w - 50, 310, "Terminal", false, false };
@@ -842,6 +1012,8 @@ void ui_init(const BootInfo *boot) {
         windows[WINDOW_FILES] = (Window){ 55, 140, screen_w - 110, 270, "Files", false, false };
         windows[WINDOW_STORE] = (Window){ 35, 110, screen_w - 70, 330, "Store", false, false };
         windows[WINDOW_SETTINGS] = (Window){ 45, 130, screen_w - 90, 310, "Personalize", false, false };
+        windows[WINDOW_LAUNCHER] = (Window){ 30, 105, screen_w - 60, 330, "Launch Apps", false, false };
+        windows[WINDOW_APP_VIEW] = (Window){ 50, 125, screen_w - 100, 315, "App", false, false };
     }
 
     clamp_window(&windows[WINDOW_TERMINAL]);
@@ -849,12 +1021,16 @@ void ui_init(const BootInfo *boot) {
     clamp_window(&windows[WINDOW_FILES]);
     clamp_window(&windows[WINDOW_STORE]);
     clamp_window(&windows[WINDOW_SETTINGS]);
+    clamp_window(&windows[WINDOW_LAUNCHER]);
+    clamp_window(&windows[WINDOW_APP_VIEW]);
 
     z_order[0] = WINDOW_TERMINAL;
     z_order[1] = WINDOW_FILES;
     z_order[2] = WINDOW_STORE;
     z_order[3] = WINDOW_SETTINGS;
-    z_order[4] = WINDOW_BROWSER;
+    z_order[4] = WINDOW_LAUNCHER;
+    z_order[5] = WINDOW_APP_VIEW;
+    z_order[6] = WINDOW_BROWSER;
     focused_window = WINDOW_BROWSER;
     terminal_init();
     liqueia_init();

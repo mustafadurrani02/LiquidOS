@@ -111,7 +111,7 @@ static void execute_command(const char *command) {
 
     if (strcmp(command, "help") == 0) {
         terminal_write_line("Commands: help, clear, about, mem, ps, spawn, runhello, runapps, syscall");
-        terminal_write_line("Files: ls, cat, touch, write, rm. Store: apps, download NAME.");
+        terminal_write_line("Files: ls, cat, touch, write, rm. Store: apps, download NAME, uninstall NAME.");
     } else if (strcmp(command, "clear") == 0) {
         line_count = 0;
     } else if (strcmp(command, "about") == 0) {
@@ -186,6 +186,10 @@ static void execute_command(const char *command) {
         char name[FS_NAME_LENGTH];
         copy_token(command + 9, name, sizeof(name));
         terminal_write_line(app_store_install(name) ? "App package installed." : "App not found in catalog.");
+    } else if (starts_with(command, "uninstall ")) {
+        char name[FS_NAME_LENGTH];
+        copy_token(command + 10, name, sizeof(name));
+        terminal_write_line(app_store_uninstall(name) ? "App removed." : "Installed app not found.");
     } else if (strcmp(command, "ls") == 0) {
         for (size_t i = 0; i < fs_file_count(); i++) {
             const FsFile *file = fs_get_file(i);

@@ -14,8 +14,26 @@ It uses:
 - PS/2 mouse input
 - a simple desktop, taskbar, windows, terminal, file explorer placeholder, shutdown button, and reboot button
 - a native Liqueia browser shell with tabs, address input, bookmarks, history, and local pages
+- an interrupt-driven PIT timer, CPU exception reporting, syscall gate, process table, scheduler accounting, and page-frame allocator groundwork
+- an offline app catalog that can install packaged demo apps into the LiquidOS filesystem
 
 No Linux, BSD, ReactOS, TempleOS, or existing operating-system code is used.
+
+## Kernel Platform Work
+
+LiquidOS now has the first pieces of a real OS platform:
+
+- x86_64 IDT/PIC interrupt handling with a 100 Hz PIT timer
+- CPU exception diagnostics that report vector, error code, and RIP to serial
+- scheduler ticks and a process table with kernel tasks plus user-process stubs
+- an `int 0x80` syscall gate with basic syscalls for PID, uptime ticks, spawning a user stub, and installing catalog apps
+- a 4 KiB page-frame allocator layered on the BIOS memory map
+- terminal commands for `ps`, `spawn`, `syscall`, `apps`, and `download NAME`
+
+Keyboard and mouse input still use the stable PS/2 polling path while timer IRQs
+drive scheduler accounting. User stubs are process records with protected address
+ranges and syscall masks; full ring-3 context switching is the next boundary to
+cross.
 
 ## Liqueia Browser
 

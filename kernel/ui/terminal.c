@@ -1,8 +1,12 @@
+#include <liquidos/app_store.h>
 #include <liquidos/fs.h>
 #include <liquidos/gfx.h>
 #include <liquidos/lib.h>
 #include <liquidos/pmm.h>
 #include <liquidos/power.h>
+#include <liquidos/process.h>
+#include <liquidos/scheduler.h>
+#include <liquidos/syscall.h>
 #include <liquidos/terminal.h>
 
 #define TERMINAL_MAX_LINES 48
@@ -47,6 +51,35 @@ static void terminal_write_kib_line(const char *label, u64 bytes) {
     terminal_write_line(line);
 }
 
+static const char *process_state_name(ProcessState state) {
+    switch (state) {
+    case PROCESS_READY: return "ready";
+    case PROCESS_RUNNING: return "running";
+    case PROCESS_SLEEPING: return "sleep";
+    case PROCESS_STOPPED: return "stopped";
+    default: return "unused";
+    }
+}
+
+static void terminal_write_process(const Process *process) {
+    char pid[16];
+    char ticks[24];
+    char line[TERMINAL_LINE_LENGTH];
+
+    u64_to_dec(process->pid, pid, sizeof(pid));
+    u64_to_dec(process->ticks, ticks, sizeof(ticks));
+    line[0] = 0;
+    append_text(line, sizeof(line), pid);
+    append_text(line, sizeof(line), " ");
+    append_text(line, sizeof(line), process->mode == PROCESS_USER ? "user " : "kern ");
+    append_text(line, sizeof(line), process_state_name(process->state));
+    append_text(line, sizeof(line), " ");
+    append_text(line, sizeof(line), process->name);
+    append_text(line, sizeof(line), " ticks=");
+    append_text(line, sizeof(line), ticks);
+    terminal_write_line(line);
+}
+
 static const char *skip_spaces(const char *text) {
     while (*text == ' ') {
         text++;
@@ -76,7 +109,8 @@ static void execute_command(const char *command) {
     terminal_write_line(prompt_line);
 
     if (strcmp(command, "help") == 0) {
-        terminal_write_line("Commands: help, clear, about, mem, ls, cat, touch, write, rm, reboot, shutdown");
+        terminal_write_line("Commands: help, clear, about, mem, ps, spawn, syscall");
+        terminal_write_line("Files: ls, cat, touch, write, rm. Store: apps, download NAME.");
     } else if (strcmp(command, "clear") == 0) {
         line_count = 0;
     } else if (strcmp(command, "about") == 0) {
@@ -87,6 +121,58 @@ static void execute_command(const char *command) {
         terminal_write_kib_line("Usable memory: ", pmm_usable_bytes());
         terminal_write_kib_line("Heap used: ", pmm_heap_used_bytes());
         terminal_write_kib_line("Heap limit: ", pmm_heap_limit_bytes());
+        char pages[24];
+        u64_to_dec(pmm_free_page_count(), pages, sizeof(pages));
+        char line[TERMINAL_LINE_LENGTH];
+        line[0] = 0;
+        append_text(line, sizeof(line), "Free page frames: ");
+        append_text(line, sizeof(line), pages);
+        terminal_write_line(line);
+    } else if (strcmp(command, "ps") == 0) {
+        for (size_t i = 0; i < process_count(); i++) {
+            const Process *process = process_get(i);
+            if (process) {
+                terminal_write_process(process);
+            }
+        }
+    } else if (strcmp(command, "spawn") == 0) {
+        u64 pid = syscall_call0(SYS_SPAWN_STUB);
+        char pid_text[24];
+        u64_to_dec(pid, pid_text, sizeof(pid_text));
+        char line[TERMINAL_LINE_LENGTH];
+        line[0] = 0;
+        append_text(line, sizeof(line), pid ? "Spawned user stub pid " : "Could not spawn user stub ");
+        append_text(line, sizeof(line), pid_text);
+        terminal_write_line(line);
+    } else if (strcmp(command, "syscall") == 0) {
+        char value[32];
+        char line[TERMINAL_LINE_LENGTH];
+        u64_to_hex(syscall_call0(SYS_HELLO), value, sizeof(value));
+        line[0] = 0;
+        append_text(line, sizeof(line), "SYS_HELLO -> ");
+        append_text(line, sizeof(line), value);
+        terminal_write_line(line);
+        u64_to_dec(syscall_call0(SYS_GETPID), value, sizeof(value));
+        line[0] = 0;
+        append_text(line, sizeof(line), "SYS_GETPID -> ");
+        append_text(line, sizeof(line), value);
+        terminal_write_line(line);
+    } else if (strcmp(command, "apps") == 0) {
+        for (size_t i = 0; i < app_store_count(); i++) {
+            const StoreApp *app = app_store_get(i);
+            if (app) {
+                char line[TERMINAL_LINE_LENGTH];
+                line[0] = 0;
+                append_text(line, sizeof(line), app->name);
+                append_text(line, sizeof(line), " - ");
+                append_text(line, sizeof(line), app->description);
+                terminal_write_line(line);
+            }
+        }
+    } else if (starts_with(command, "download ")) {
+        char name[FS_NAME_LENGTH];
+        copy_token(command + 9, name, sizeof(name));
+        terminal_write_line(app_store_install(name) ? "App package installed." : "App not found in catalog.");
     } else if (strcmp(command, "ls") == 0) {
         for (size_t i = 0; i < fs_file_count(); i++) {
             const FsFile *file = fs_get_file(i);

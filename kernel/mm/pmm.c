@@ -5,11 +5,16 @@
 
 extern u8 __kernel_end;
 
+#define PMM_MAX_PAGES 4096
+#define PAGE_SIZE 4096ULL
+
 static u64 total_bytes = 0;
 static u64 usable_bytes = 0;
 static u64 heap_start = 0;
 static u64 heap_next = 0;
 static u64 heap_limit = 0;
+static u64 free_pages[PMM_MAX_PAGES];
+static u64 free_page_count = 0;
 
 static u64 align_up_u64(u64 value, u64 alignment) {
     if (alignment == 0) {
@@ -21,6 +26,7 @@ static u64 align_up_u64(u64 value, u64 alignment) {
 void pmm_init(const BootInfo *boot) {
     total_bytes = 0;
     usable_bytes = 0;
+    free_page_count = 0;
 
     for (u32 i = 0; i < boot->memory_map_count && i < 32; i++) {
         const BootMemoryMapEntry *entry = &boot->memory_map[i];
@@ -48,6 +54,22 @@ void pmm_init(const BootInfo *boot) {
                 heap_limit = heap_start + (8ULL * 1024ULL * 1024ULL);
             }
             break;
+        }
+    }
+
+    for (u32 i = 0; i < boot->memory_map_count && i < 32; i++) {
+        const BootMemoryMapEntry *entry = &boot->memory_map[i];
+        if (entry->type != BOOT_MEMORY_USABLE) {
+            continue;
+        }
+
+        u64 start = align_up_u64(entry->base, PAGE_SIZE);
+        u64 end = entry->base + entry->length;
+        for (u64 page = start; page + PAGE_SIZE <= end && free_page_count < PMM_MAX_PAGES; page += PAGE_SIZE) {
+            if (page < heap_limit) {
+                continue;
+            }
+            free_pages[free_page_count++] = page;
         }
     }
 
@@ -101,6 +123,28 @@ char *kstrdup(const char *text) {
     return copy;
 }
 
+void *pmm_alloc_page(void) {
+    if (free_page_count == 0) {
+        return NULL;
+    }
+
+    u64 page = free_pages[--free_page_count];
+    memset((void *)(uintptr_t)page, 0, PAGE_SIZE);
+    return (void *)(uintptr_t)page;
+}
+
+void pmm_free_page(void *page) {
+    if (!page || free_page_count >= PMM_MAX_PAGES) {
+        return;
+    }
+
+    u64 address = (u64)(uintptr_t)page;
+    if ((address & (PAGE_SIZE - 1)) != 0) {
+        return;
+    }
+    free_pages[free_page_count++] = address;
+}
+
 u64 pmm_total_bytes(void) {
     return total_bytes;
 }
@@ -128,4 +172,8 @@ u64 pmm_heap_free_bytes(void) {
         return 0;
     }
     return heap_limit - heap_next;
+}
+
+u64 pmm_free_page_count(void) {
+    return free_page_count;
 }

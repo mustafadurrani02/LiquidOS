@@ -4,11 +4,13 @@
 #include <liquidos/keyboard.h>
 #include <liquidos/lib.h>
 #include <liquidos/mouse.h>
+#include <liquidos/scheduler.h>
+#include <liquidos/syscall.h>
 #include <liquidos/debug.h>
 #include <liquidos/serial.h>
 
 #define IDT_ENTRIES 256
-#define KERNEL_CODE_SELECTOR 0x08
+#define KERNEL_CODE_SELECTOR 0x18
 
 #define PIC1_COMMAND 0x20
 #define PIC1_DATA 0x21
@@ -40,6 +42,7 @@ typedef struct IdtPointer {
 } __attribute__((packed)) IdtPointer;
 
 extern void *isr_stub_table[];
+extern void isr_stub_128(void);
 
 static IdtEntry idt[IDT_ENTRIES];
 static volatile u64 ticks = 0;
@@ -50,6 +53,16 @@ static void idt_set_gate(u8 vector, u64 handler) {
     idt[vector].selector = KERNEL_CODE_SELECTOR;
     idt[vector].ist = 0;
     idt[vector].attributes = 0x8E;
+    idt[vector].offset_mid = (u16)((handler >> 16) & 0xFFFF);
+    idt[vector].offset_high = (u32)((handler >> 32) & 0xFFFFFFFF);
+    idt[vector].zero = 0;
+}
+
+static void idt_set_trap_gate(u8 vector, u64 handler, u8 dpl) {
+    idt[vector].offset_low = (u16)(handler & 0xFFFF);
+    idt[vector].selector = KERNEL_CODE_SELECTOR;
+    idt[vector].ist = 0;
+    idt[vector].attributes = (u8)(0x8F | ((dpl & 3) << 5));
     idt[vector].offset_mid = (u16)((handler >> 16) & 0xFFFF);
     idt[vector].offset_high = (u32)((handler >> 32) & 0xFFFFFFFF);
     idt[vector].zero = 0;
@@ -146,6 +159,7 @@ void interrupts_init(void) {
     for (u8 i = 0; i < 48; i++) {
         idt_set_gate(i, (u64)(uintptr_t)isr_stub_table[i]);
     }
+    idt_set_trap_gate(0x80, (u64)(uintptr_t)isr_stub_128, 3);
 
     IdtPointer pointer;
     pointer.limit = (u16)(sizeof(idt) - 1);
@@ -162,8 +176,14 @@ void interrupts_init(void) {
 void interrupt_dispatch(InterruptFrame *frame) {
     u64 vector = frame->vector;
 
+    if (vector == 0x80) {
+        frame->rax = syscall_dispatch(frame);
+        return;
+    }
+
     if (vector == IRQ_BASE) {
         ticks++;
+        scheduler_tick();
         InputEvent event;
         event.type = INPUT_EVENT_TICK;
         event.ch = 0;
@@ -204,9 +224,15 @@ void interrupt_dispatch(InterruptFrame *frame) {
         return;
     }
 
-    serial_write("Unhandled exception vector ");
+    serial_write("CPU exception vector ");
     char number[24];
     u64_to_dec(vector, number, sizeof(number));
-    serial_write_line(number);
-    panic("Unhandled CPU exception");
+    serial_write(number);
+    serial_write(" error ");
+    u64_to_hex(frame->error_code, number, sizeof(number));
+    serial_write(number);
+    serial_write(" rip ");
+    serial_write_hex(frame->rip);
+    serial_write_line("");
+    panic("CPU exception");
 }

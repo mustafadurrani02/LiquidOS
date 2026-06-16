@@ -36,7 +36,10 @@ isr_common:
     push r15
 
     mov rdi, rsp
+    mov rbx, rsp
+    and rsp, -16
     call interrupt_dispatch
+    mov rsp, rbx
 
     pop r15
     pop r14
@@ -95,6 +98,8 @@ ISR_NOERR 31
 ISR_NOERR i
 %assign i i+1
 %endrep
+
+ISR_NOERR 128
 
 SECTION .rodata
 isr_stub_table:

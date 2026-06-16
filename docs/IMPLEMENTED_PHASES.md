@@ -149,3 +149,29 @@ What it does:
 - Lets the terminal `ls` command list files.
 
 This is intentionally simple. A real filesystem parser can be added later without changing the desktop API.
+
+## Phase 11: Kernel Platform Foundations
+
+Files:
+
+- `kernel/arch/x86_64/interrupts.c`
+- `kernel/arch/x86_64/isr.asm`
+- `kernel/core/process.c`
+- `kernel/core/scheduler.c`
+- `kernel/core/syscall.c`
+- `kernel/core/app_store.c`
+- `kernel/mm/pmm.c`
+
+What it does:
+
+- Installs a long-mode IDT and remaps the PIC.
+- Enables the PIT timer IRQ for scheduler ticks.
+- Reports CPU exceptions with vector, error code, and instruction pointer.
+- Provides an `int 0x80` syscall gate.
+- Tracks kernel processes and user-process stubs.
+- Adds a simple round-robin scheduler accounting model.
+- Adds a 4 KiB page-frame allocator.
+- Adds an offline app catalog and package installation into LiquidFS.
+
+This is still not full userspace isolation. The next major platform milestone is
+ring-3 entry/exit with per-process address spaces and real context switching.

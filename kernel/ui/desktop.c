@@ -6,6 +6,7 @@
 #include <liquidos/lib.h>
 #include <liquidos/liqueia.h>
 #include <liquidos/platform.h>
+#include <liquidos/power.h>
 #include <liquidos/terminal.h>
 #include <liquidos/ui.h>
 #include "../gfx/app_icons.h"
@@ -21,7 +22,8 @@ typedef enum WindowKind {
     WINDOW_SETTINGS = 4,
     WINDOW_LAUNCHER = 5,
     WINDOW_APP_VIEW = 6,
-    WINDOW_COUNT = 7
+    WINDOW_CONTROL_CENTER = 7,
+    WINDOW_COUNT = 8
 } WindowKind;
 
 typedef struct Window {
@@ -41,6 +43,8 @@ typedef struct TaskbarLayout {
     i32 h;
     i32 volume_x;
     i32 wifi_x;
+    i32 control_x;
+    i32 logo_x;
     i32 slot_x;
     i32 slot_y;
     i32 slot_size;
@@ -86,6 +90,7 @@ static char date_text[9] = "00/00/00";
 static char taskbar_message[32] = "SEARCH";
 static char app_status_text[64] = "Install an app, then run it from Store or Launch Apps.";
 static bool wifi_enabled = true;
+static bool battery_saver = false;
 static bool full_redraw_needed = true;
 static bool cursor_redraw_needed = true;
 static bool dirty_region_valid = false;
@@ -140,13 +145,16 @@ static void taskbar_layout(TaskbarLayout *layout) {
     layout->slot_step = compact ? 70 : 86;
     layout->slots_available = 4;
     layout->search_w = compact ? 230 : 332;
-    layout->search_h = compact ? 42 : 58;
-    layout->search_y = compact ? layout->y + (layout->h - layout->search_h) / 2 : layout->y + 10;
+    layout->search_h = compact ? 36 : 42;
+    layout->search_y = layout->y + (layout->h - layout->search_h) / 2;
 
-    i32 trailing_w = compact ? 12 : 14;
-    layout->search_x = layout->x + layout->w - layout->search_w - trailing_w;
+    i32 trailing_w = compact ? 12 : 16;
+    i32 control_w = compact ? 184 : 254;
+    layout->control_x = layout->x + layout->w - control_w - trailing_w;
+    layout->search_x = layout->control_x - layout->search_w - (compact ? 10 : 14);
     layout->volume_x = 0;
-    layout->wifi_x = layout->x + (compact ? 142 : 205);
+    layout->wifi_x = layout->control_x + (compact ? 14 : 18);
+    layout->logo_x = layout->x + (compact ? 14 : 18);
     layout->slot_y = layout->y + (layout->h - layout->slot_size) / 2;
 
     i32 app_group_w = (layout->slots_available - 1) * layout->slot_step + layout->slot_size;
@@ -322,7 +330,10 @@ static i32 taskbar_hover_zone_at(i32 px, i32 py) {
     if (!point_in_rect(px, py, bar.x, bar.y, bar.w, bar.h)) {
         return -1;
     }
-    if (point_in_rect(px, py, bar.wifi_x - 10, bar.y + 22, 54, 58)) {
+    if (point_in_rect(px, py, bar.logo_x, bar.y + 8, 138, bar.h - 16)) {
+        return 1;
+    }
+    if (point_in_rect(px, py, bar.control_x, bar.y + 8, bar.x + bar.w - bar.control_x - 14, bar.h - 16)) {
         return 2;
     }
     for (i32 i = 0; i < bar.slots_available; i++) {
@@ -378,9 +389,12 @@ static void handle_taskbar_click(void) {
     TaskbarLayout bar;
     taskbar_layout(&bar);
 
-    if (point_in_rect(mouse_x, mouse_y, bar.wifi_x - 10, bar.y + 22, 54, 58)) {
-        wifi_enabled = !wifi_enabled;
-        set_taskbar_message(wifi_enabled ? "WIFI ENABLED" : "WIFI DISABLED");
+    if (point_in_rect(mouse_x, mouse_y, bar.logo_x, bar.y + 8, 138, bar.h - 16)) {
+        open_window(WINDOW_LAUNCHER);
+        set_taskbar_message("LIQUIDOS MENU");
+    } else if (point_in_rect(mouse_x, mouse_y, bar.control_x, bar.y + 8, bar.x + bar.w - bar.control_x - 14, bar.h - 16)) {
+        open_window(WINDOW_CONTROL_CENTER);
+        set_taskbar_message("CONTROL CENTER");
     } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x, bar.slot_y, bar.slot_size, bar.slot_size)) {
         open_window(WINDOW_BROWSER);
         set_taskbar_message("BROWSER");
@@ -392,7 +406,7 @@ static void handle_taskbar_click(void) {
         set_taskbar_message("STORE");
     } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step * 3, bar.slot_y, bar.slot_size, bar.slot_size)) {
         open_window(WINDOW_SETTINGS);
-        set_taskbar_message("PERSONALIZE");
+        set_taskbar_message("SETTINGS");
     } else if (point_in_rect(mouse_x, mouse_y, bar.search_x, bar.search_y, bar.search_w, bar.search_h)) {
         open_window(WINDOW_LAUNCHER);
         set_taskbar_message("APP LAUNCHER");
@@ -644,6 +658,56 @@ static void handle_app_view_click(const Window *window) {
     }
 }
 
+static void handle_control_center_click(const Window *window) {
+    i32 x = window->x + 6;
+    i32 y = window->y + 30;
+
+    if (point_in_rect(mouse_x, mouse_y, x + 22, y + 64, 132, 42)) {
+        wifi_enabled = !wifi_enabled;
+        set_taskbar_message(wifi_enabled ? "WIFI ENABLED" : "WIFI DISABLED");
+        mark_dirty_full();
+        return;
+    }
+    if (point_in_rect(mouse_x, mouse_y, x + 166, y + 64, 132, 42)) {
+        battery_saver = !battery_saver;
+        set_taskbar_message(battery_saver ? "BATTERY SAVER" : "FULL POWER");
+        mark_dirty_full();
+        return;
+    }
+    if (point_in_rect(mouse_x, mouse_y, x + 22, y + 198, 112, 34)) {
+        power_reboot();
+    }
+    if (point_in_rect(mouse_x, mouse_y, x + 146, y + 198, 132, 34)) {
+        power_shutdown();
+    }
+}
+
+static bool point_in_open_window(i32 x, i32 y) {
+    for (int z = WINDOW_COUNT - 1; z >= 0; z--) {
+        Window *window = &windows[z_order[z]];
+        if (window->open && point_in_rect(x, y, window->x, window->y, window->width, window->height)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void handle_desktop_click(void) {
+    i32 x = 28;
+    i32 y = taskbar_y() + taskbar_h() + 28;
+    i32 size = 72;
+    if (point_in_rect(mouse_x, mouse_y, x, y, size, size)) {
+        open_window(WINDOW_LAUNCHER);
+        set_taskbar_message("LAUNCH APPS");
+    } else if (point_in_rect(mouse_x, mouse_y, x, y + 92, size, size)) {
+        open_window(WINDOW_FILES);
+        set_taskbar_message("FILES");
+    } else if (point_in_rect(mouse_x, mouse_y, x, y + 184, size, size)) {
+        open_window(WINDOW_STORE);
+        set_taskbar_message("STORE");
+    }
+}
+
 static void handle_window_click(void) {
     for (int z = WINDOW_COUNT - 1; z >= 0; z--) {
         WindowKind kind = z_order[z];
@@ -697,6 +761,8 @@ static void handle_window_click(void) {
                 handle_launcher_click(window);
             } else if (kind == WINDOW_APP_VIEW) {
                 handle_app_view_click(window);
+            } else if (kind == WINDOW_CONTROL_CENTER) {
+                handle_control_center_click(window);
             }
         }
 
@@ -754,12 +820,20 @@ static void update_clock_text(void) {
 
 static void draw_app_slot(i32 x, i32 y, i32 size, bool active, bool hovered) {
     if (hovered || active) {
-        gfx_fill_round_rect_alpha(x + 1, y + 1, size - 2, size - 2, size / 3, RGB(210, 242, 255), hovered ? 24 : 14);
+        gfx_fill_round_rect_alpha(x - 2, y - 2, size + 4, size + 4, size / 3, RGB(255, 255, 255), hovered ? 42 : 20);
     }
     if (hovered || active) {
         gfx_draw_round_rect(x + 4, y + 4, size - 8, size - 8, size / 4, active ? RGB(204, 241, 255) : RGB(238, 248, 255));
-        gfx_fill_round_rect_alpha(x + size / 3, y + size - 4, size / 3, 3, 2, active ? RGB(164, 235, 255) : RGB(255, 255, 255), active ? 210 : 105);
+        gfx_fill_round_rect_alpha(x + size / 3, y + size - 2, size / 3, 4, 2, active ? RGB(164, 235, 255) : RGB(255, 255, 255), active ? 230 : 120);
     }
+}
+
+static void draw_desktop_icon(i32 x, i32 y, const char *label, const char *glyph, Color accent) {
+    gfx_fill_round_rect_alpha(x + 4, y + 5, 64, 64, 18, RGB(0, 0, 0), 70);
+    gfx_fill_round_rect_alpha(x, y, 64, 64, 18, RGB(255, 255, 255), 130);
+    gfx_fill_round_rect_alpha(x + 12, y + 10, 40, 36, 14, accent, 230);
+    gfx_draw_text(x + 22, y + 22, glyph, RGB(255, 255, 255), 1);
+    gfx_draw_text(x - 2, y + 72, label, RGB(245, 248, 252), 1);
 }
 
 static void draw_background(void) {
@@ -769,31 +843,37 @@ static void draw_background(void) {
     gfx_fill_round_rect_plain_alpha(-80, (i32)gfx_height() / 2, (i32)gfx_width() + 160, (i32)gfx_height() / 2 + 90, 0, theme->wash_bottom, 34);
     gfx_fill_circle_alpha((i32)gfx_width() - 120, 150, 160, theme->accent, 42);
     gfx_fill_circle_alpha(120, (i32)gfx_height() - 120, 140, theme->wash_top, 34);
+
+    i32 icon_y = taskbar_y() + taskbar_h() + 28;
+    draw_desktop_icon(28, icon_y, "Launch", "AP", theme->accent);
+    draw_desktop_icon(28, icon_y + 92, "Files", "FS", RGB(100, 172, 230));
+    draw_desktop_icon(28, icon_y + 184, "Store", "GET", RGB(244, 184, 64));
 }
 
 static void draw_window_frame(const Window *window, bool focused) {
     const DesktopTheme *theme = &themes[current_theme];
     Color shadow = RGB(6, 9, 13);
-    Color body = theme->panel;
-    Color title = focused ? theme->text : RGB(66, 75, 84);
-    Color border = focused ? theme->accent : RGB(120, 132, 140);
+    Color body = focused ? theme->panel : RGB(239, 243, 248);
+    Color title = focused ? RGB(255, 255, 255) : RGB(236, 240, 246);
+    Color border = focused ? theme->accent : RGB(184, 194, 204);
 
-    gfx_fill_round_rect_alpha(window->x + 8, window->y + 10, window->width, window->height, 12, shadow, 110);
+    gfx_fill_round_rect_alpha(window->x + 10, window->y + 14, window->width, window->height, 18, shadow, focused ? 96 : 62);
     if (focused) {
-        gfx_fill_round_rect_alpha(window->x - 4, window->y - 4, window->width + 8, window->height + 8, 16, theme->accent, 30);
+        gfx_fill_round_rect_alpha(window->x - 5, window->y - 5, window->width + 10, window->height + 10, 20, theme->accent, 24);
     }
-    gfx_fill_round_rect(window->x, window->y, window->width, window->height, 12, body);
-    gfx_draw_round_rect(window->x, window->y, window->width, window->height, 12, border);
-    gfx_fill_round_rect(window->x + 1, window->y + 1, window->width - 2, 28, 11, title);
-    gfx_draw_text(window->x + 58, window->y + 8, window->title, RGB(248, 250, 252), 1);
+    gfx_fill_round_rect_alpha(window->x, window->y, window->width, window->height, 18, body, 248);
+    gfx_draw_round_rect(window->x, window->y, window->width, window->height, 18, border);
+    gfx_fill_round_rect_alpha(window->x + 1, window->y + 1, window->width - 2, 30, 17, title, focused ? 88 : 56);
+    gfx_draw_text(window->x + 64, window->y + 9, window->title, focused ? theme->text : RGB(88, 96, 106), 1);
 
     gfx_fill_circle(window->x + 16, window->y + 13, 6, RGB(238, 94, 88));
-    gfx_fill_circle(window->x + 36, window->y + 13, 6, RGB(83, 196, 101));
+    gfx_fill_circle(window->x + 36, window->y + 13, 6, RGB(242, 190, 76));
+    gfx_fill_circle(window->x + 56, window->y + 13, 6, RGB(83, 196, 101));
     gfx_draw_line(window->x + 13, window->y + 10, window->x + 19, window->y + 16, RGB(99, 28, 27));
     gfx_draw_line(window->x + 19, window->y + 10, window->x + 13, window->y + 16, RGB(99, 28, 27));
-    gfx_draw_line(window->x + 33, window->y + 16, window->x + 39, window->y + 10, RGB(31, 92, 40));
-    gfx_draw_line(window->x + 34, window->y + 10, window->x + 39, window->y + 10, RGB(31, 92, 40));
-    gfx_draw_line(window->x + 39, window->y + 10, window->x + 39, window->y + 15, RGB(31, 92, 40));
+    gfx_draw_line(window->x + 53, window->y + 16, window->x + 59, window->y + 10, RGB(31, 92, 40));
+    gfx_draw_line(window->x + 54, window->y + 10, window->x + 59, window->y + 10, RGB(31, 92, 40));
+    gfx_draw_line(window->x + 59, window->y + 10, window->x + 59, window->y + 15, RGB(31, 92, 40));
     gfx_draw_line(window->x + window->width - 17, window->y + window->height - 6, window->x + window->width - 6, window->y + window->height - 17, RGB(132, 146, 154));
     gfx_draw_line(window->x + window->width - 12, window->y + window->height - 5, window->x + window->width - 5, window->y + window->height - 12, RGB(132, 146, 154));
 }
@@ -990,12 +1070,18 @@ static void draw_app_view_window(i32 x, i32 y, i32 width, i32 height) {
 static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     const DesktopTheme *theme = &themes[current_theme];
     gfx_fill_rect(x, y, width, height, RGB(247, 249, 252));
-    gfx_draw_text(x + 22, y + 22, "Personalize LiquidOS", theme->text, 2);
-    gfx_draw_text(x + 24, y + 52, "Themes, persistence, and installed app controls.", RGB(82, 94, 104), 1);
+    gfx_draw_text(x + 22, y + 18, "System Settings", theme->text, 2);
+    gfx_draw_text(x + 24, y + 48, "Appearance, Apps, Storage, Platform, and About.", RGB(82, 94, 104), 1);
+    gfx_fill_round_rect_alpha(x + 18, y + 68, width - 36, 26, 12, RGB(255, 255, 255), 200);
+    gfx_draw_text(x + 32, y + 76, "Appearance", theme->text, 1);
+    gfx_draw_text(x + 134, y + 76, "Apps", RGB(82, 94, 104), 1);
+    gfx_draw_text(x + 184, y + 76, "Storage", RGB(82, 94, 104), 1);
+    gfx_draw_text(x + 254, y + 76, "Platform", RGB(82, 94, 104), 1);
+    gfx_draw_text(x + 334, y + 76, "About", RGB(82, 94, 104), 1);
 
-    i32 start_y = y + 78;
+    i32 start_y = y + 98;
     i32 theme_w = width / 2 - 38;
-    gfx_draw_text(x + 20, y + 72, "Themes", theme->text, 1);
+    gfx_draw_text(x + 20, y + 96, "Appearance", theme->text, 1);
     for (size_t i = 0; i < sizeof(themes) / sizeof(themes[0]); i++) {
         const DesktopTheme *choice = &themes[i];
         i32 row_y = start_y + 18 + (i32)i * 46;
@@ -1012,11 +1098,11 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
 
     i32 manager_x = x + width / 2 + 6;
     i32 manager_w = width / 2 - 34;
-    gfx_draw_text(manager_x, y + 72, "App Manager", theme->text, 1);
-    gfx_fill_round_rect_alpha(manager_x, y + 92, manager_w, 138, 14, RGB(255, 255, 255), 220);
+    gfx_draw_text(manager_x, y + 96, "Apps", theme->text, 1);
+    gfx_fill_round_rect_alpha(manager_x, y + 116, manager_w, 118, 14, RGB(255, 255, 255), 220);
 
     size_t visible = 0;
-    i32 row_y = y + 100;
+    i32 row_y = y + 124;
     for (size_t i = 0; i < app_store_count(); i++) {
         if (!app_store_is_installed(i)) {
             continue;
@@ -1031,14 +1117,14 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
         visible++;
     }
     if (visible == 0) {
-        gfx_draw_text(manager_x + 12, y + 112, "No Store apps installed yet.", RGB(92, 104, 116), 1);
+        gfx_draw_text(manager_x + 12, y + 136, "No Store apps installed yet.", RGB(92, 104, 116), 1);
     }
 
     char storage[64];
     char number[16];
     storage[0] = 0;
     append_text(storage, sizeof(storage), fs_persistence_available() ? "Persistence: disk-backed" : "Persistence: RAM only");
-    gfx_draw_text(manager_x, y + 252, storage, RGB(82, 94, 104), 1);
+    gfx_draw_text(manager_x, y + 254, storage, RGB(82, 94, 104), 1);
     storage[0] = 0;
     append_text(storage, sizeof(storage), "LiquidFS: ");
     u64_to_dec(fs_file_count(), number, sizeof(number));
@@ -1047,7 +1133,7 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     u64_to_dec(fs_capacity(), number, sizeof(number));
     append_text(storage, sizeof(storage), number);
     append_text(storage, sizeof(storage), " files used");
-    gfx_draw_text(manager_x, y + 272, storage, RGB(82, 94, 104), 1);
+    gfx_draw_text(manager_x, y + 274, storage, RGB(82, 94, 104), 1);
 
     PlatformSummary summary = platform_summary();
     storage[0] = 0;
@@ -1058,8 +1144,42 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     u64_to_dec(summary.partial, number, sizeof(number));
     append_text(storage, sizeof(storage), number);
     append_text(storage, sizeof(storage), " partial");
-    gfx_draw_text(manager_x, y + 292, storage, RGB(82, 94, 104), 1);
-    gfx_draw_text(manager_x, y + 314, app_status_text, RGB(82, 94, 104), 1);
+    gfx_draw_text(manager_x, y + 294, storage, RGB(82, 94, 104), 1);
+    gfx_draw_text(manager_x, y + 316, app_status_text, RGB(82, 94, 104), 1);
+}
+
+static void draw_control_center_window(i32 x, i32 y, i32 width, i32 height) {
+    const DesktopTheme *theme = &themes[current_theme];
+    gfx_fill_rect(x, y, width, height, RGB(245, 248, 252));
+    gfx_draw_text(x + 22, y + 22, "Control Center", theme->text, 2);
+    gfx_draw_text(x + 24, y + 52, "Quick controls for the LiquidOS shell.", RGB(82, 94, 104), 1);
+
+    gfx_fill_round_rect_alpha(x + 22, y + 64, 132, 42, 14, wifi_enabled ? RGB(210, 244, 225) : RGB(244, 226, 226), 240);
+    gfx_draw_text(x + 38, y + 78, wifi_enabled ? "Wi-Fi On" : "Wi-Fi Off", RGB(35, 50, 58), 1);
+    gfx_fill_round_rect_alpha(x + 166, y + 64, 132, 42, 14, battery_saver ? RGB(255, 240, 205) : RGB(232, 240, 250), 240);
+    gfx_draw_text(x + 182, y + 78, battery_saver ? "Battery Save" : "Full Power", RGB(35, 50, 58), 1);
+
+    gfx_fill_round_rect_alpha(x + 22, y + 124, width - 44, 58, 16, RGB(255, 255, 255), 220);
+    gfx_draw_text(x + 40, y + 138, themes[current_theme].name, theme->text, 1);
+    gfx_draw_text(x + 40, y + 158, fs_persistence_available() ? "Storage: disk-backed" : "Storage: RAM only", RGB(82, 94, 104), 1);
+
+    PlatformSummary summary = platform_summary();
+    char line[64];
+    char number[16];
+    line[0] = 0;
+    append_text(line, sizeof(line), "Platform: ");
+    u64_to_dec(summary.available, number, sizeof(number));
+    append_text(line, sizeof(line), number);
+    append_text(line, sizeof(line), " ready, ");
+    u64_to_dec(summary.partial, number, sizeof(number));
+    append_text(line, sizeof(line), number);
+    append_text(line, sizeof(line), " partial");
+    gfx_draw_text(x + 40, y + 176, line, RGB(82, 94, 104), 1);
+
+    gfx_fill_round_rect_alpha(x + 22, y + 198, 112, 34, 12, RGB(232, 238, 246), 240);
+    gfx_draw_text(x + 50, y + 210, "Restart", RGB(35, 50, 58), 1);
+    gfx_fill_round_rect_alpha(x + 146, y + 198, 132, 34, 12, RGB(248, 220, 224), 240);
+    gfx_draw_text(x + 178, y + 210, "Shutdown", RGB(92, 30, 40), 1);
 }
 
 static void draw_window(WindowKind kind) {
@@ -1090,6 +1210,8 @@ static void draw_window(WindowKind kind) {
         draw_launcher_window(content_x, content_y, content_w, content_h);
     } else if (kind == WINDOW_APP_VIEW) {
         draw_app_view_window(content_x, content_y, content_w, content_h);
+    } else if (kind == WINDOW_CONTROL_CENTER) {
+        draw_control_center_window(content_x, content_y, content_w, content_h);
     }
 }
 
@@ -1097,25 +1219,37 @@ static void draw_taskbar(void) {
     TaskbarLayout bar;
     taskbar_layout(&bar);
     i32 compact = gfx_width() < 900 ? 1 : 0;
-    i32 radius = compact ? 24 : 28;
-    i32 text_scale = compact ? 1 : 2;
-    i32 logo_size = compact ? 42 : 58;
-    i32 app_size = compact ? 48 : 56;
+    i32 radius = compact ? 24 : 30;
+    i32 text_scale = 1;
+    i32 logo_size = compact ? 34 : 42;
+    i32 app_size = compact ? 44 : 52;
 
-    gfx_fill_round_rect_plain_alpha(bar.x + 4, bar.y + 5, bar.w, bar.h, radius, RGB(0, 0, 0), 110);
-    gfx_fill_round_rect_plain_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(8, 8, 9), 252);
-    gfx_fill_round_rect_plain_alpha(bar.x + 3, bar.y + 3, bar.w - 6, 2, radius / 2, RGB(37, 37, 39), 150);
+    gfx_fill_round_rect_plain_alpha(bar.x + 4, bar.y + 6, bar.w, bar.h, radius, RGB(0, 0, 0), 90);
+    gfx_fill_round_rect_plain_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(18, 20, 24), 224);
+    gfx_fill_round_rect_plain_alpha(bar.x + 3, bar.y + 3, bar.w - 6, bar.h / 2, radius, RGB(255, 255, 255), 18);
 
-    gfx_draw_argb8888_image_scaled(bar.x + (compact ? 16 : 28), bar.y + (bar.h - logo_size) / 2, logo_size, logo_size,
+    bool logo_hover = hover_zone == 1;
+    gfx_fill_round_rect_plain_alpha(bar.logo_x - 4, bar.y + 8, compact ? 122 : 150, bar.h - 16, 18, RGB(255, 255, 255), logo_hover ? 42 : 20);
+    gfx_draw_argb8888_image_scaled(bar.logo_x, bar.y + (bar.h - logo_size) / 2, logo_size, logo_size,
                                    liquidos_logo_argb, LIQUIDOS_LOGO_WIDTH, LIQUIDOS_LOGO_HEIGHT);
-    gfx_draw_text(bar.x + (compact ? 68 : 94), bar.y + (compact ? 15 : 13), clock_text, RGB(221, 223, 229), text_scale);
-    gfx_draw_text(bar.x + (compact ? 68 : 94), bar.y + (compact ? 37 : 45), date_text, RGB(205, 207, 214), text_scale);
+    gfx_draw_text(bar.logo_x + logo_size + 10, bar.y + (compact ? 18 : 22), "LiquidOS", RGB(242, 245, 250), text_scale);
 
-    gfx_draw_argb8888_image_scaled(bar.wifi_x, bar.y + (compact ? 20 : 21), compact ? 38 : 40, compact ? 38 : 40,
+    bool control_hover = hover_zone == 2;
+    i32 control_w = bar.x + bar.w - bar.control_x - 14;
+    gfx_fill_round_rect_plain_alpha(bar.control_x, bar.y + 8, control_w, bar.h - 16, 18, RGB(255, 255, 255), control_hover ? 42 : 22);
+    gfx_draw_argb8888_image_scaled(bar.wifi_x, bar.y + (compact ? 18 : 20), compact ? 28 : 32, compact ? 28 : 32,
                                    system_icon_wifi_argb, SYSTEM_ICON_WIFI_WIDTH, SYSTEM_ICON_WIFI_HEIGHT);
     if (!wifi_enabled) {
-        gfx_draw_line(bar.wifi_x + 3, bar.y + 25, bar.wifi_x + 37, bar.y + 58, RGB(238, 122, 122));
-        gfx_draw_line(bar.wifi_x + 4, bar.y + 25, bar.wifi_x + 38, bar.y + 58, RGB(238, 122, 122));
+        gfx_draw_line(bar.wifi_x + 3, bar.y + 23, bar.wifi_x + 29, bar.y + 50, RGB(238, 122, 122));
+        gfx_draw_line(bar.wifi_x + 4, bar.y + 23, bar.wifi_x + 30, bar.y + 50, RGB(238, 122, 122));
+    }
+    i32 battery_x = bar.wifi_x + (compact ? 38 : 46);
+    gfx_draw_round_rect(battery_x, bar.y + (compact ? 25 : 28), 32, 15, 4, RGB(222, 229, 236));
+    gfx_fill_rect(battery_x + 33, bar.y + (compact ? 30 : 33), 3, 5, RGB(222, 229, 236));
+    gfx_fill_round_rect_alpha(battery_x + 3, bar.y + (compact ? 28 : 31), battery_saver ? 13 : 24, 9, 3, battery_saver ? RGB(244, 184, 64) : RGB(120, 220, 150), 230);
+    gfx_draw_text(battery_x + 48, bar.y + (compact ? 20 : 19), clock_text, RGB(239, 243, 248), compact ? 1 : 2);
+    if (!compact) {
+        gfx_draw_text(battery_x + 48, bar.y + 45, date_text, RGB(190, 198, 208), 1);
     }
 
     for (i32 i = 0; i < bar.slots_available; i++) {
@@ -1123,7 +1257,7 @@ static void draw_taskbar(void) {
                       (i == 1 && focused_window == WINDOW_FILES && windows[WINDOW_FILES].open) ||
                       (i == 2 && focused_window == WINDOW_STORE && windows[WINDOW_STORE].open) ||
                       (i == 3 && focused_window == WINDOW_SETTINGS && windows[WINDOW_SETTINGS].open);
-        draw_app_slot(bar.slot_x + i * bar.slot_step, bar.slot_y, bar.slot_size, active, false);
+        draw_app_slot(bar.slot_x + i * bar.slot_step, bar.slot_y, bar.slot_size, active, hover_zone == 10 + i);
     }
     gfx_draw_argb8888_image_scaled(bar.slot_x + 1, bar.slot_y + 1, app_size, app_size,
                                    app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT);
@@ -1138,11 +1272,11 @@ static void draw_taskbar(void) {
     gfx_fill_circle(settings_x + app_size / 2, bar.slot_y + app_size / 2, 13, themes[current_theme].accent);
     gfx_fill_circle(settings_x + app_size / 2, bar.slot_y + app_size / 2, 5, RGB(20, 24, 30));
 
-    gfx_fill_round_rect_plain_alpha(bar.search_x + 3, bar.search_y + 4, bar.search_w, bar.search_h, bar.search_h / 2, RGB(0, 0, 0), 80);
-    gfx_fill_round_rect_plain_alpha(bar.search_x, bar.search_y, bar.search_w, bar.search_h, bar.search_h / 2, RGB(56, 56, 57), 255);
-    gfx_draw_argb8888_image_scaled(bar.search_x + (compact ? 15 : 16), bar.search_y + (compact ? 5 : 9), compact ? 32 : 38, compact ? 32 : 38,
+    gfx_fill_round_rect_plain_alpha(bar.search_x + 2, bar.search_y + 3, bar.search_w, bar.search_h, bar.search_h / 2, RGB(0, 0, 0), 64);
+    gfx_fill_round_rect_plain_alpha(bar.search_x, bar.search_y, bar.search_w, bar.search_h, bar.search_h / 2, RGB(255, 255, 255), hover_zone == 30 ? 56 : 30);
+    gfx_draw_argb8888_image_scaled(bar.search_x + 12, bar.search_y + (compact ? 5 : 6), compact ? 26 : 30, compact ? 26 : 30,
                                    system_icon_search_argb, SYSTEM_ICON_SEARCH_WIDTH, SYSTEM_ICON_SEARCH_HEIGHT);
-    gfx_draw_text(bar.search_x + (compact ? 54 : 58), bar.search_y + (compact ? 13 : 16), "Search", RGB(206, 207, 213), text_scale);
+    gfx_draw_text(bar.search_x + (compact ? 46 : 52), bar.search_y + (compact ? 12 : 14), "Search or open Launch Apps", RGB(224, 229, 236), text_scale);
 }
 
 void ui_init(const BootInfo *boot) {
@@ -1164,18 +1298,20 @@ void ui_init(const BootInfo *boot) {
     windows[WINDOW_BROWSER] = (Window){ 180, 180, 820, 500, "Liqueia", false, false };
     windows[WINDOW_FILES] = (Window){ 320, 260, 660, 400, "Files", false, false };
     windows[WINDOW_STORE] = (Window){ 240, 170, 720, 430, "Store", false, false };
-    windows[WINDOW_SETTINGS] = (Window){ 280, 210, 620, 360, "Personalize", false, false };
+    windows[WINDOW_SETTINGS] = (Window){ 280, 210, 660, 390, "System Settings", false, false };
     windows[WINDOW_LAUNCHER] = (Window){ 260, 150, 600, 410, "Launch Apps", false, false };
     windows[WINDOW_APP_VIEW] = (Window){ 300, 190, 620, 390, "App", false, false };
+    windows[WINDOW_CONTROL_CENTER] = (Window){ screen_w - 380, taskbar_y() + taskbar_h() + 16, 340, 300, "Control Center", false, false };
 
     if (screen_w < 800) {
         windows[WINDOW_TERMINAL] = (Window){ 25, 100, screen_w - 50, 310, "Terminal", false, false };
         windows[WINDOW_BROWSER] = (Window){ 40, 120, screen_w - 80, 320, "Liqueia", false, false };
         windows[WINDOW_FILES] = (Window){ 55, 140, screen_w - 110, 270, "Files", false, false };
         windows[WINDOW_STORE] = (Window){ 35, 110, screen_w - 70, 330, "Store", false, false };
-        windows[WINDOW_SETTINGS] = (Window){ 45, 130, screen_w - 90, 310, "Personalize", false, false };
+        windows[WINDOW_SETTINGS] = (Window){ 45, 130, screen_w - 90, 330, "System Settings", false, false };
         windows[WINDOW_LAUNCHER] = (Window){ 30, 105, screen_w - 60, 330, "Launch Apps", false, false };
         windows[WINDOW_APP_VIEW] = (Window){ 50, 125, screen_w - 100, 315, "App", false, false };
+        windows[WINDOW_CONTROL_CENTER] = (Window){ 35, 105, screen_w - 70, 300, "Control Center", false, false };
     }
 
     clamp_window(&windows[WINDOW_TERMINAL]);
@@ -1185,6 +1321,7 @@ void ui_init(const BootInfo *boot) {
     clamp_window(&windows[WINDOW_SETTINGS]);
     clamp_window(&windows[WINDOW_LAUNCHER]);
     clamp_window(&windows[WINDOW_APP_VIEW]);
+    clamp_window(&windows[WINDOW_CONTROL_CENTER]);
 
     z_order[0] = WINDOW_TERMINAL;
     z_order[1] = WINDOW_FILES;
@@ -1192,7 +1329,8 @@ void ui_init(const BootInfo *boot) {
     z_order[3] = WINDOW_SETTINGS;
     z_order[4] = WINDOW_LAUNCHER;
     z_order[5] = WINDOW_APP_VIEW;
-    z_order[6] = WINDOW_BROWSER;
+    z_order[6] = WINDOW_CONTROL_CENTER;
+    z_order[7] = WINDOW_BROWSER;
     focused_window = WINDOW_BROWSER;
     terminal_init();
     liqueia_init();
@@ -1276,7 +1414,11 @@ void ui_handle_event(const InputEvent *event) {
             handle_taskbar_click();
             mark_dirty_taskbar();
         } else {
-            handle_window_click();
+            if (point_in_open_window(mouse_x, mouse_y)) {
+                handle_window_click();
+            } else {
+                handle_desktop_click();
+            }
         }
     }
 

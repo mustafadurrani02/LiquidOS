@@ -12,8 +12,8 @@ It uses:
 - double-buffered drawing
 - PS/2 keyboard input
 - PS/2 mouse input
-- a simple desktop, taskbar, windows, terminal, file explorer placeholder, shutdown button, and reboot button
-- a graphical Store install/open/remove flow, app launcher, and Personalize window with desktop themes
+- a macOS-inspired desktop shell with a top floating dock/menu bar, desktop shortcuts, Control Center, windows, terminal, file explorer placeholder, shutdown button, and reboot button
+- a graphical Store install/open/remove flow, app launcher, and System Settings window with desktop themes
 - a native Liqueia browser shell with tabs, address input, bookmarks, history, and local pages
 - an interrupt-driven PIT timer, CPU exception reporting, syscall gate, process table, cooperative user scheduling, page-frame allocator, and VMM groundwork
 - an offline app catalog that validates simple `LPKG1` packages, installs runnable demo apps, receipts, and manifests into the LiquidOS filesystem
@@ -39,9 +39,9 @@ LiquidOS now has the first pieces of a real OS platform:
 - terminal commands for `ps`, `spawn`, `runhello`, `runapps`, `runcrash`, `syscall`, `apps`, `download NAME`, `runapp NAME`, and `uninstall NAME`
 - a graphical Store window that validates offline catalog packages, installs runnable `LAPP` payloads into LiquidFS, runs installed apps, and removes installed packages
 - a Launch Apps window that opens built-in apps and runs installed Store apps
-- an App Manager inside Personalize for running/removing installed apps and viewing filesystem persistence status
+- an App Manager inside System Settings for running/removing installed apps and viewing filesystem persistence status
 - terminal platform status commands for `platform`, `drivers`, `services`, and `security`
-- desktop customization through the Personalize window with Liquid Gold, Aurora Blue, Glass Mint, and Night Violet themes persisted in `SYSTEM/THEME.TXT`
+- desktop customization through System Settings with Liquid Gold, Aurora Blue, Glass Mint, and Night Violet themes persisted in `SYSTEM/THEME.TXT`
 
 Keyboard and mouse input still use the stable PS/2 polling path while timer IRQs
 drive scheduler accounting. User processes now carry entry RIP, user RSP,
@@ -79,8 +79,8 @@ audio are finished.
 The registry covers hardware drivers, storage, process isolation, scheduling,
 app/window APIs, networking, security, system services, developer tooling, and
 recovery/polish. Use `platform` in Terminal for the full list, or `drivers`,
-`services`, and `security` for filtered views. Personalize also shows a compact
-platform readiness summary next to App Manager.
+`services`, and `security` for filtered views. System Settings also shows a
+compact platform readiness summary next to App Manager.
 
 ### Flat LAPP Format
 
@@ -122,11 +122,16 @@ Launch Apps opens from the taskbar search pill. Networking, remote package
 download, signatures, dependency resolution, and third-party binary tooling are
 intentionally deferred.
 
-The Personalize window changes the desktop theme immediately. Themes tint the
-wallpaper wash, active window glow, Store cards, and dock accents without
-rebuilding the OS. The selected theme is saved to `SYSTEM/THEME.TXT` and loaded
-again when the desktop starts. Personalize also includes an App Manager and
-shows whether LiquidFS is disk-backed or RAM-only in the current VM.
+The top floating dock/menu bar keeps the LiquidOS menu on the left, centered app
+icons, launcher search, and right-side control widgets for Wi-Fi, battery status,
+clock, and Control Center. The desktop also has shortcut icons for Launch Apps,
+Files, and Store.
+
+System Settings changes the desktop theme immediately. Themes tint the wallpaper
+wash, active window glow, Store cards, and dock accents without rebuilding the
+OS. The selected theme is saved to `SYSTEM/THEME.TXT` and loaded again when the
+desktop starts. System Settings also includes an App Manager and shows whether
+LiquidFS is disk-backed or RAM-only in the current VM.
 
 ## Liqueia Browser
 

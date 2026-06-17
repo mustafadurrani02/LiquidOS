@@ -5,6 +5,7 @@
 #include <liquidos/io.h>
 #include <liquidos/lib.h>
 #include <liquidos/liqueia.h>
+#include <liquidos/platform.h>
 #include <liquidos/terminal.h>
 #include <liquidos/ui.h>
 #include "../gfx/app_icons.h"
@@ -1047,7 +1048,18 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     append_text(storage, sizeof(storage), number);
     append_text(storage, sizeof(storage), " files used");
     gfx_draw_text(manager_x, y + 272, storage, RGB(82, 94, 104), 1);
-    gfx_draw_text(manager_x, y + 296, app_status_text, RGB(82, 94, 104), 1);
+
+    PlatformSummary summary = platform_summary();
+    storage[0] = 0;
+    append_text(storage, sizeof(storage), "Platform: ");
+    u64_to_dec(summary.available, number, sizeof(number));
+    append_text(storage, sizeof(storage), number);
+    append_text(storage, sizeof(storage), " ready / ");
+    u64_to_dec(summary.partial, number, sizeof(number));
+    append_text(storage, sizeof(storage), number);
+    append_text(storage, sizeof(storage), " partial");
+    gfx_draw_text(manager_x, y + 292, storage, RGB(82, 94, 104), 1);
+    gfx_draw_text(manager_x, y + 314, app_status_text, RGB(82, 94, 104), 1);
 }
 
 static void draw_window(WindowKind kind) {

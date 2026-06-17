@@ -13,6 +13,7 @@
 #include <liquidos/lib.h>
 #include <liquidos/loader.h>
 #include <liquidos/pmm.h>
+#include <liquidos/platform.h>
 #include <liquidos/process.h>
 #include <liquidos/ps2.h>
 #include <liquidos/scheduler.h>
@@ -60,6 +61,7 @@ void kernel_main(const BootInfo *boot) {
     syscall_init();
     disk_init();
     fs_init();
+    platform_init();
     loader_init();
     app_store_init();
     app_init();

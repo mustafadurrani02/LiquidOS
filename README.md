@@ -17,6 +17,7 @@ It uses:
 - a native Liqueia browser shell with tabs, address input, bookmarks, history, and local pages
 - an interrupt-driven PIT timer, CPU exception reporting, syscall gate, process table, cooperative user scheduling, page-frame allocator, and VMM groundwork
 - an offline app catalog that validates simple `LPKG1` packages, installs runnable demo apps, receipts, and manifests into the LiquidOS filesystem
+- a platform capability registry that tracks hardware, storage, isolation, scheduling, app API, networking, security, services, tooling, and recovery readiness
 - a larger 1120-sector kernel reserve in the fixed boot image
 
 No Linux, BSD, ReactOS, TempleOS, or existing operating-system code is used.
@@ -39,6 +40,7 @@ LiquidOS now has the first pieces of a real OS platform:
 - a graphical Store window that validates offline catalog packages, installs runnable `LAPP` payloads into LiquidFS, runs installed apps, and removes installed packages
 - a Launch Apps window that opens built-in apps and runs installed Store apps
 - an App Manager inside Personalize for running/removing installed apps and viewing filesystem persistence status
+- terminal platform status commands for `platform`, `drivers`, `services`, and `security`
 - desktop customization through the Personalize window with Liquid Gold, Aurora Blue, Glass Mint, and Night Violet themes persisted in `SYSTEM/THEME.TXT`
 
 Keyboard and mouse input still use the stable PS/2 polling path while timer IRQs
@@ -47,6 +49,20 @@ address-space, guard-page, exit-code, syscall-mask, file descriptor, and saved
 trap-frame metadata. Full timer-driven preemption and ELF loading are
 intentionally not implemented yet; the current app model is cooperative and
 uses the simpler flat `LAPP` binary format.
+
+### Platform Capability Registry
+
+LiquidOS keeps an in-kernel registry for the big operating-system areas that
+need to exist before it can become a serious desktop platform. Each item is
+reported as `available`, `partial`, `planned`, or `missing`, so the OS can show
+what is real today without pretending huge subsystems like NVMe, Wi-Fi, TLS, or
+audio are finished.
+
+The registry covers hardware drivers, storage, process isolation, scheduling,
+app/window APIs, networking, security, system services, developer tooling, and
+recovery/polish. Use `platform` in Terminal for the full list, or `drivers`,
+`services`, and `security` for filtered views. Personalize also shows a compact
+platform readiness summary next to App Manager.
 
 ### Flat LAPP Format
 

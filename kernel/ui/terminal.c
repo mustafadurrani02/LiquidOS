@@ -3,6 +3,7 @@
 #include <liquidos/gfx.h>
 #include <liquidos/loader.h>
 #include <liquidos/lib.h>
+#include <liquidos/platform.h>
 #include <liquidos/pmm.h>
 #include <liquidos/power.h>
 #include <liquidos/process.h>
@@ -102,6 +103,31 @@ static bool starts_with(const char *text, const char *prefix) {
     return strncmp(text, prefix, strlen(prefix)) == 0;
 }
 
+static void terminal_write_platform_line(const PlatformCapability *capability) {
+    if (!capability) {
+        return;
+    }
+
+    char line[TERMINAL_LINE_LENGTH];
+    line[0] = 0;
+    append_text(line, sizeof(line), capability->area);
+    append_text(line, sizeof(line), ": ");
+    append_text(line, sizeof(line), capability->name);
+    append_text(line, sizeof(line), " [");
+    append_text(line, sizeof(line), platform_status_name(capability->status));
+    append_text(line, sizeof(line), "]");
+    terminal_write_line(line);
+}
+
+static void terminal_write_platform_area(const char *area) {
+    for (size_t i = 0; i < platform_capability_count(); i++) {
+        const PlatformCapability *capability = platform_capability_get(i);
+        if (capability && strcmp(capability->area, area) == 0) {
+            terminal_write_platform_line(capability);
+        }
+    }
+}
+
 static void execute_command(const char *command) {
     char prompt_line[TERMINAL_LINE_LENGTH];
     prompt_line[0] = 0;
@@ -110,7 +136,8 @@ static void execute_command(const char *command) {
     terminal_write_line(prompt_line);
 
     if (strcmp(command, "help") == 0) {
-        terminal_write_line("Commands: help, clear, about, mem, ps, spawn, runhello, runapps, syscall");
+        terminal_write_line("Commands: help, clear, about, mem, ps, platform, drivers, services, security");
+        terminal_write_line("Apps: spawn, runhello, runapps, syscall, apps, download NAME, runapp NAME, uninstall NAME.");
         terminal_write_line("Files: ls, cat, touch, write, rm. Store: apps, download NAME, runapp NAME, uninstall NAME.");
     } else if (strcmp(command, "clear") == 0) {
         line_count = 0;
@@ -136,6 +163,38 @@ static void execute_command(const char *command) {
                 terminal_write_process(process);
             }
         }
+    } else if (strcmp(command, "platform") == 0) {
+        PlatformSummary summary = platform_summary();
+        char number[16];
+        char line[TERMINAL_LINE_LENGTH];
+        line[0] = 0;
+        append_text(line, sizeof(line), "Platform: ");
+        u64_to_dec(summary.available, number, sizeof(number));
+        append_text(line, sizeof(line), number);
+        append_text(line, sizeof(line), " available, ");
+        u64_to_dec(summary.partial, number, sizeof(number));
+        append_text(line, sizeof(line), number);
+        append_text(line, sizeof(line), " partial, ");
+        u64_to_dec(summary.planned, number, sizeof(number));
+        append_text(line, sizeof(line), number);
+        append_text(line, sizeof(line), " planned, ");
+        u64_to_dec(summary.missing, number, sizeof(number));
+        append_text(line, sizeof(line), number);
+        append_text(line, sizeof(line), " missing");
+        terminal_write_line(line);
+        for (size_t i = 0; i < platform_capability_count(); i++) {
+            terminal_write_platform_line(platform_capability_get(i));
+        }
+    } else if (strcmp(command, "drivers") == 0) {
+        terminal_write_platform_area("hardware");
+        terminal_write_platform_area("networking");
+    } else if (strcmp(command, "services") == 0) {
+        terminal_write_platform_area("services");
+        terminal_write_platform_area("tooling");
+        terminal_write_platform_area("recovery");
+    } else if (strcmp(command, "security") == 0) {
+        terminal_write_platform_area("isolation");
+        terminal_write_platform_area("security");
     } else if (strcmp(command, "spawn") == 0) {
         u64 pid = syscall_call0(SYS_SPAWN_STUB);
         char pid_text[24];

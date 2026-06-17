@@ -9,7 +9,6 @@
 #include <liquidos/power.h>
 #include <liquidos/terminal.h>
 #include <liquidos/ui.h>
-#include "../gfx/app_icons.h"
 #include "../gfx/background_image.h"
 
 typedef enum WindowKind {
@@ -781,16 +780,6 @@ static void update_clock_text(void) {
     date_text[8] = 0;
 }
 
-static void draw_app_slot(i32 x, i32 y, i32 size, bool active, bool hovered) {
-    if (hovered || active) {
-        gfx_fill_round_rect_alpha(x - 2, y - 2, size + 4, size + 4, size / 3, RGB(255, 255, 255), hovered ? 42 : 20);
-    }
-    if (hovered || active) {
-        gfx_draw_round_rect(x + 4, y + 4, size - 8, size - 8, size / 4, active ? RGB(204, 241, 255) : RGB(238, 248, 255));
-        gfx_fill_round_rect_alpha(x + size / 3, y + size - 2, size / 3, 4, 2, active ? RGB(164, 235, 255) : RGB(255, 255, 255), active ? 230 : 120);
-    }
-}
-
 static void draw_glass_panel(i32 x, i32 y, i32 width, i32 height, i32 radius) {
     gfx_fill_round_rect_alpha(x + 5, y + 7, width, height, radius, RGB(0, 0, 0), 62);
     gfx_liquid_glass_rect(x, y, width, height, radius);
@@ -1184,32 +1173,9 @@ static void draw_taskbar(void) {
     taskbar_layout(&bar);
     i32 compact = gfx_width() < 900 ? 1 : 0;
     i32 radius = compact ? 24 : 30;
-    i32 app_size = compact ? 44 : 52;
 
     gfx_fill_round_rect_plain_alpha(bar.x + 4, bar.y + 6, bar.w, bar.h, radius, RGB(0, 0, 0), 90);
-    gfx_liquid_glass_rect(bar.x, bar.y, bar.w, bar.h, radius);
-    gfx_fill_round_rect_plain_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(18, 20, 24), 92);
-    gfx_fill_round_rect_plain_alpha(bar.x + 3, bar.y + 3, bar.w - 6, bar.h / 2, radius, RGB(255, 255, 255), 16);
-
-    for (i32 i = 0; i < bar.slots_available; i++) {
-        bool active = (i == 0 && focused_window == WINDOW_BROWSER && windows[WINDOW_BROWSER].open) ||
-                      (i == 1 && focused_window == WINDOW_FILES && windows[WINDOW_FILES].open) ||
-                      (i == 2 && focused_window == WINDOW_STORE && windows[WINDOW_STORE].open) ||
-                      (i == 3 && focused_window == WINDOW_SETTINGS && windows[WINDOW_SETTINGS].open);
-        draw_app_slot(bar.slot_x + i * bar.slot_step, bar.slot_y, bar.slot_size, active, hover_zone == 10 + i);
-    }
-    gfx_draw_argb8888_image_scaled(bar.slot_x + 1, bar.slot_y + 1, app_size, app_size,
-                                   app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT);
-    gfx_draw_argb8888_image_scaled(bar.slot_x + bar.slot_step + 1, bar.slot_y + 1, app_size, app_size,
-                                   app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT);
-    i32 store_x = bar.slot_x + bar.slot_step * 2;
-    i32 settings_x = bar.slot_x + bar.slot_step * 3;
-    gfx_fill_round_rect_alpha(store_x + 9, bar.slot_y + 11, app_size - 16, app_size - 18, 12, themes[current_theme].accent, 235);
-    gfx_draw_line(store_x + 18, bar.slot_y + 19, store_x + app_size - 16, bar.slot_y + 19, RGB(255, 255, 255));
-    gfx_draw_text(store_x + 18, bar.slot_y + 30, "GET", RGB(255, 255, 255), 1);
-    gfx_fill_round_rect_alpha(settings_x + 10, bar.slot_y + 10, app_size - 18, app_size - 18, 16, RGB(238, 242, 248), 238);
-    gfx_fill_circle(settings_x + app_size / 2, bar.slot_y + app_size / 2, 13, themes[current_theme].accent);
-    gfx_fill_circle(settings_x + app_size / 2, bar.slot_y + app_size / 2, 5, RGB(20, 24, 30));
+    gfx_fill_round_rect_plain_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(0, 0, 0), 230);
 }
 
 void ui_init(const BootInfo *boot) {

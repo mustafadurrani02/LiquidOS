@@ -11,8 +11,6 @@
 #include <liquidos/ui.h>
 #include "../gfx/app_icons.h"
 #include "../gfx/background_image.h"
-#include "../gfx/liquidos_logo.h"
-#include "../gfx/system_icons.h"
 
 typedef enum WindowKind {
     WINDOW_TERMINAL = 0,
@@ -107,17 +105,12 @@ static size_t current_theme = 0;
 static size_t selected_store_app = 0;
 
 static void append_text(char *dest, size_t dest_size, const char *src);
+static i32 taskbar_w(void);
 
 static i32 taskbar_x(void) {
     i32 screen_w = (i32)gfx_width();
-    i32 margin = screen_w / 100;
-    if (margin < 16) {
-        margin = 16;
-    }
-    if (margin > 24) {
-        margin = 24;
-    }
-    return margin;
+    i32 width = taskbar_w();
+    return (screen_w - width) / 2;
 }
 
 static i32 taskbar_y(void) {
@@ -126,7 +119,12 @@ static i32 taskbar_y(void) {
 
 static i32 taskbar_w(void) {
     i32 screen_w = (i32)gfx_width();
-    return screen_w - taskbar_x() * 2;
+    i32 compact = screen_w < 900 ? 1 : 0;
+    i32 slot_size = compact ? 48 : 58;
+    i32 slot_step = compact ? 66 : 82;
+    i32 width = (4 - 1) * slot_step + slot_size + (compact ? 34 : 44);
+    i32 max_width = screen_w - 32;
+    return width > max_width ? max_width : width;
 }
 
 static i32 taskbar_h(void) {
@@ -142,23 +140,17 @@ static void taskbar_layout(TaskbarLayout *layout) {
     layout->h = taskbar_h();
 
     layout->slot_size = compact ? 48 : 58;
-    layout->slot_step = compact ? 70 : 86;
+    layout->slot_step = compact ? 66 : 82;
     layout->slots_available = 4;
-    layout->search_w = compact ? 230 : 332;
-    layout->search_h = compact ? 36 : 42;
-    layout->search_y = layout->y + (layout->h - layout->search_h) / 2;
-
-    i32 trailing_w = compact ? 12 : 16;
-    i32 control_w = compact ? 184 : 254;
-    layout->control_x = layout->x + layout->w - control_w - trailing_w;
-    layout->search_x = layout->control_x - layout->search_w - (compact ? 10 : 14);
+    layout->search_w = 0;
+    layout->search_h = 0;
+    layout->search_y = 0;
+    layout->control_x = 0;
     layout->volume_x = 0;
-    layout->wifi_x = layout->control_x + (compact ? 14 : 18);
-    layout->logo_x = layout->x + (compact ? 14 : 18);
+    layout->wifi_x = 0;
+    layout->logo_x = 0;
     layout->slot_y = layout->y + (layout->h - layout->slot_size) / 2;
-
-    i32 app_group_w = (layout->slots_available - 1) * layout->slot_step + layout->slot_size;
-    layout->slot_x = ((i32)gfx_width() - app_group_w) / 2;
+    layout->slot_x = layout->x + (layout->w - ((layout->slots_available - 1) * layout->slot_step + layout->slot_size)) / 2;
 }
 
 static bool point_in_rect(i32 px, i32 py, i32 x, i32 y, i32 width, i32 height) {
@@ -330,19 +322,10 @@ static i32 taskbar_hover_zone_at(i32 px, i32 py) {
     if (!point_in_rect(px, py, bar.x, bar.y, bar.w, bar.h)) {
         return -1;
     }
-    if (point_in_rect(px, py, bar.logo_x, bar.y + 8, 138, bar.h - 16)) {
-        return 1;
-    }
-    if (point_in_rect(px, py, bar.control_x, bar.y + 8, bar.x + bar.w - bar.control_x - 14, bar.h - 16)) {
-        return 2;
-    }
     for (i32 i = 0; i < bar.slots_available; i++) {
         if (point_in_rect(px, py, bar.slot_x + i * bar.slot_step, bar.slot_y, bar.slot_size, bar.slot_size)) {
             return 10 + i;
         }
-    }
-    if (point_in_rect(px, py, bar.search_x, bar.search_y, bar.search_w, bar.search_h)) {
-        return 30;
     }
     return 0;
 }
@@ -389,13 +372,7 @@ static void handle_taskbar_click(void) {
     TaskbarLayout bar;
     taskbar_layout(&bar);
 
-    if (point_in_rect(mouse_x, mouse_y, bar.logo_x, bar.y + 8, 138, bar.h - 16)) {
-        open_window(WINDOW_LAUNCHER);
-        set_taskbar_message("LIQUIDOS MENU");
-    } else if (point_in_rect(mouse_x, mouse_y, bar.control_x, bar.y + 8, bar.x + bar.w - bar.control_x - 14, bar.h - 16)) {
-        open_window(WINDOW_CONTROL_CENTER);
-        set_taskbar_message("CONTROL CENTER");
-    } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x, bar.slot_y, bar.slot_size, bar.slot_size)) {
+    if (point_in_rect(mouse_x, mouse_y, bar.slot_x, bar.slot_y, bar.slot_size, bar.slot_size)) {
         open_window(WINDOW_BROWSER);
         set_taskbar_message("BROWSER");
     } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step, bar.slot_y, bar.slot_size, bar.slot_size)) {
@@ -407,9 +384,6 @@ static void handle_taskbar_click(void) {
     } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step * 3, bar.slot_y, bar.slot_size, bar.slot_size)) {
         open_window(WINDOW_SETTINGS);
         set_taskbar_message("SETTINGS");
-    } else if (point_in_rect(mouse_x, mouse_y, bar.search_x, bar.search_y, bar.search_w, bar.search_h)) {
-        open_window(WINDOW_LAUNCHER);
-        set_taskbar_message("APP LAUNCHER");
     }
 }
 
@@ -693,19 +667,8 @@ static bool point_in_open_window(i32 x, i32 y) {
 }
 
 static void handle_desktop_click(void) {
-    i32 x = 28;
-    i32 y = taskbar_y() + taskbar_h() + 28;
-    i32 size = 72;
-    if (point_in_rect(mouse_x, mouse_y, x, y, size, size)) {
-        open_window(WINDOW_LAUNCHER);
-        set_taskbar_message("LAUNCH APPS");
-    } else if (point_in_rect(mouse_x, mouse_y, x, y + 92, size, size)) {
-        open_window(WINDOW_FILES);
-        set_taskbar_message("FILES");
-    } else if (point_in_rect(mouse_x, mouse_y, x, y + 184, size, size)) {
-        open_window(WINDOW_STORE);
-        set_taskbar_message("STORE");
-    }
+    (void)mouse_x;
+    (void)mouse_y;
 }
 
 static void handle_window_click(void) {
@@ -842,26 +805,8 @@ static void draw_glass_chip(i32 x, i32 y, i32 width, i32 height, const char *lab
     gfx_draw_text(x + 12, y + (height / 2) - 5, label, active ? RGB(255, 255, 255) : RGB(34, 45, 56), 1);
 }
 
-static void draw_desktop_icon(i32 x, i32 y, const char *label, const char *glyph, Color accent) {
-    gfx_fill_round_rect_alpha(x + 4, y + 5, 64, 64, 18, RGB(0, 0, 0), 70);
-    gfx_liquid_glass_rect(x, y, 64, 64, 18);
-    gfx_fill_round_rect_alpha(x + 12, y + 10, 40, 36, 14, accent, 230);
-    gfx_draw_text(x + 22, y + 22, glyph, RGB(255, 255, 255), 1);
-    gfx_draw_text(x - 2, y + 72, label, RGB(245, 248, 252), 1);
-}
-
 static void draw_background(void) {
-    const DesktopTheme *theme = &themes[current_theme];
     gfx_draw_wallpaper();
-    gfx_fill_round_rect_plain_alpha(-80, -60, (i32)gfx_width() + 160, (i32)gfx_height() / 2, 0, theme->wash_top, 26);
-    gfx_fill_round_rect_plain_alpha(-80, (i32)gfx_height() / 2, (i32)gfx_width() + 160, (i32)gfx_height() / 2 + 90, 0, theme->wash_bottom, 34);
-    gfx_fill_circle_alpha((i32)gfx_width() - 120, 150, 160, theme->accent, 42);
-    gfx_fill_circle_alpha(120, (i32)gfx_height() - 120, 140, theme->wash_top, 34);
-
-    i32 icon_y = taskbar_y() + taskbar_h() + 28;
-    draw_desktop_icon(28, icon_y, "Launch", "AP", theme->accent);
-    draw_desktop_icon(28, icon_y + 92, "Files", "FS", RGB(100, 172, 230));
-    draw_desktop_icon(28, icon_y + 184, "Store", "GET", RGB(244, 184, 64));
 }
 
 static void draw_window_frame(const Window *window, bool focused) {
@@ -1239,40 +1184,12 @@ static void draw_taskbar(void) {
     taskbar_layout(&bar);
     i32 compact = gfx_width() < 900 ? 1 : 0;
     i32 radius = compact ? 24 : 30;
-    i32 text_scale = 1;
-    i32 logo_size = compact ? 34 : 42;
     i32 app_size = compact ? 44 : 52;
 
     gfx_fill_round_rect_plain_alpha(bar.x + 4, bar.y + 6, bar.w, bar.h, radius, RGB(0, 0, 0), 90);
     gfx_liquid_glass_rect(bar.x, bar.y, bar.w, bar.h, radius);
-    gfx_fill_round_rect_plain_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(18, 20, 24), 108);
-    gfx_fill_round_rect_plain_alpha(bar.x + 3, bar.y + 3, bar.w - 6, bar.h / 2, radius, RGB(255, 255, 255), 18);
-
-    bool logo_hover = hover_zone == 1;
-    gfx_liquid_glass_rect(bar.logo_x - 4, bar.y + 8, compact ? 122 : 150, bar.h - 16, 18);
-    gfx_fill_round_rect_plain_alpha(bar.logo_x - 4, bar.y + 8, compact ? 122 : 150, bar.h - 16, 18, RGB(255, 255, 255), logo_hover ? 44 : 16);
-    gfx_draw_argb8888_image_scaled(bar.logo_x, bar.y + (bar.h - logo_size) / 2, logo_size, logo_size,
-                                   liquidos_logo_argb, LIQUIDOS_LOGO_WIDTH, LIQUIDOS_LOGO_HEIGHT);
-    gfx_draw_text(bar.logo_x + logo_size + 10, bar.y + (compact ? 18 : 22), "LiquidOS", RGB(242, 245, 250), text_scale);
-
-    bool control_hover = hover_zone == 2;
-    i32 control_w = bar.x + bar.w - bar.control_x - 14;
-    gfx_liquid_glass_rect(bar.control_x, bar.y + 8, control_w, bar.h - 16, 18);
-    gfx_fill_round_rect_plain_alpha(bar.control_x, bar.y + 8, control_w, bar.h - 16, 18, RGB(255, 255, 255), control_hover ? 42 : 18);
-    gfx_draw_argb8888_image_scaled(bar.wifi_x, bar.y + (compact ? 18 : 20), compact ? 28 : 32, compact ? 28 : 32,
-                                   system_icon_wifi_argb, SYSTEM_ICON_WIFI_WIDTH, SYSTEM_ICON_WIFI_HEIGHT);
-    if (!wifi_enabled) {
-        gfx_draw_line(bar.wifi_x + 3, bar.y + 23, bar.wifi_x + 29, bar.y + 50, RGB(238, 122, 122));
-        gfx_draw_line(bar.wifi_x + 4, bar.y + 23, bar.wifi_x + 30, bar.y + 50, RGB(238, 122, 122));
-    }
-    i32 battery_x = bar.wifi_x + (compact ? 38 : 46);
-    gfx_draw_round_rect(battery_x, bar.y + (compact ? 25 : 28), 32, 15, 4, RGB(222, 229, 236));
-    gfx_fill_rect(battery_x + 33, bar.y + (compact ? 30 : 33), 3, 5, RGB(222, 229, 236));
-    gfx_fill_round_rect_alpha(battery_x + 3, bar.y + (compact ? 28 : 31), battery_saver ? 13 : 24, 9, 3, battery_saver ? RGB(244, 184, 64) : RGB(120, 220, 150), 230);
-    gfx_draw_text(battery_x + 48, bar.y + (compact ? 20 : 19), clock_text, RGB(239, 243, 248), compact ? 1 : 2);
-    if (!compact) {
-        gfx_draw_text(battery_x + 48, bar.y + 45, date_text, RGB(190, 198, 208), 1);
-    }
+    gfx_fill_round_rect_plain_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(18, 20, 24), 92);
+    gfx_fill_round_rect_plain_alpha(bar.x + 3, bar.y + 3, bar.w - 6, bar.h / 2, radius, RGB(255, 255, 255), 16);
 
     for (i32 i = 0; i < bar.slots_available; i++) {
         bool active = (i == 0 && focused_window == WINDOW_BROWSER && windows[WINDOW_BROWSER].open) ||
@@ -1293,13 +1210,6 @@ static void draw_taskbar(void) {
     gfx_fill_round_rect_alpha(settings_x + 10, bar.slot_y + 10, app_size - 18, app_size - 18, 16, RGB(238, 242, 248), 238);
     gfx_fill_circle(settings_x + app_size / 2, bar.slot_y + app_size / 2, 13, themes[current_theme].accent);
     gfx_fill_circle(settings_x + app_size / 2, bar.slot_y + app_size / 2, 5, RGB(20, 24, 30));
-
-    gfx_fill_round_rect_plain_alpha(bar.search_x + 2, bar.search_y + 3, bar.search_w, bar.search_h, bar.search_h / 2, RGB(0, 0, 0), 64);
-    gfx_liquid_glass_rect(bar.search_x, bar.search_y, bar.search_w, bar.search_h, bar.search_h / 2);
-    gfx_fill_round_rect_plain_alpha(bar.search_x, bar.search_y, bar.search_w, bar.search_h, bar.search_h / 2, RGB(255, 255, 255), hover_zone == 30 ? 48 : 18);
-    gfx_draw_argb8888_image_scaled(bar.search_x + 12, bar.search_y + (compact ? 5 : 6), compact ? 26 : 30, compact ? 26 : 30,
-                                   system_icon_search_argb, SYSTEM_ICON_SEARCH_WIDTH, SYSTEM_ICON_SEARCH_HEIGHT);
-    gfx_draw_text(bar.search_x + (compact ? 46 : 52), bar.search_y + (compact ? 12 : 14), "Search or open Launch Apps", RGB(224, 229, 236), text_scale);
 }
 
 void ui_init(const BootInfo *boot) {

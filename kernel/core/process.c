@@ -85,6 +85,31 @@ bool process_yield_current(void) {
     return true;
 }
 
+bool process_preempt_current(void) {
+    Process *process = process_current();
+    if (!process || process->mode == PROCESS_KERNEL) {
+        return false;
+    }
+    process->state = PROCESS_READY;
+    process_set_current(1);
+    return true;
+}
+
+bool process_crash_current(u64 vector, u64 error_code, u64 rip, u64 fault_address) {
+    Process *process = process_current();
+    if (!process || process->mode == PROCESS_KERNEL) {
+        return false;
+    }
+    process->state = PROCESS_CRASHED;
+    process->exit_code = -1;
+    process->crash_vector = vector;
+    process->crash_error = error_code;
+    process->crash_rip = rip;
+    process->crash_address = fault_address;
+    process_set_current(1);
+    return true;
+}
+
 i32 process_open_current(const char *path) {
     Process *process = process_current();
     if (!process || !path || !fs_find(path)) {
@@ -297,7 +322,7 @@ void process_set_current(u32 pid) {
     }
     for (size_t i = 0; i < MAX_PROCESSES; i++) {
         if (processes[i].pid == pid) {
-            if (processes[i].state == PROCESS_UNUSED || processes[i].state == PROCESS_STOPPED) {
+            if (processes[i].state == PROCESS_UNUSED || processes[i].state == PROCESS_STOPPED || processes[i].state == PROCESS_CRASHED) {
                 return;
             }
             processes[i].state = PROCESS_RUNNING;

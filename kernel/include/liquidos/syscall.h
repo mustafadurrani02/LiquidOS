@@ -17,6 +17,11 @@ typedef enum SyscallNumber {
     SYS_SPAWN_STUB = 9,
     SYS_INSTALL_APP = 10,
     SYS_HELLO = 11,
+    SYS_WINDOW_CREATE = 12,
+    SYS_DRAW_TEXT = 13,
+    SYS_DRAW_RECT = 14,
+    SYS_POLL_EVENT = 15,
+    SYS_WINDOW_CLOSE = 16,
     SYS_COUNT
 } SyscallNumber;
 

@@ -27,16 +27,16 @@ No Linux, BSD, ReactOS, TempleOS, or existing operating-system code is used.
 LiquidOS now has the first pieces of a real OS platform:
 
 - x86_64 IDT/PIC interrupt handling with a 100 Hz PIT timer
-- CPU exception diagnostics that report vector, error code, and RIP to serial
+- CPU exception diagnostics that report vector, error code, and RIP to serial, with user-mode crashes contained to the offending process
 - a GDT with kernel/user segments plus a TSS and dedicated ring-3 trap stack
-- scheduler ticks and a process table with kernel tasks plus saved user trap contexts for cooperative `SYS_YIELD`
-- an `int 0x80` syscall gate with basic syscalls for write, exit, yield, PID, uptime ticks, filesystem open/read/write/close, spawning a user stub, and installing catalog apps
+- scheduler ticks and a process table with kernel tasks plus saved user trap contexts for cooperative `SYS_YIELD` and first timer-driven ring-3 preemption
+- an `int 0x80` syscall gate with basic syscalls for write, exit, yield, PID, uptime ticks, filesystem open/read/write/close, spawning a user stub, installing catalog apps, and early window handles
 - a 4 KiB page-frame allocator layered on the BIOS memory map
 - VMM helpers for page mapping, unmapping, user/kernel permissions, guard pages, per-process address-space records, and page-fault diagnostics
 - a flat binary `LAPP` format with a validated header, text/data/bss/stack metadata, syscall mask, and built-in `HELLO`, `APP_A`, and `APP_B` demo apps
 - a `LAPP` loader that maps app text/data/bss into user memory, enters ring 3 with `iretq`, handles `SYS_WRITE`, `SYS_YIELD`, and `SYS_EXIT`, and returns safely to the kernel
 - per-process file descriptor tables for `open`, `read`, `write`, and `close`
-- terminal commands for `ps`, `spawn`, `runhello`, `runapps`, `syscall`, `apps`, `download NAME`, `runapp NAME`, and `uninstall NAME`
+- terminal commands for `ps`, `spawn`, `runhello`, `runapps`, `runcrash`, `syscall`, `apps`, `download NAME`, `runapp NAME`, and `uninstall NAME`
 - a graphical Store window that validates offline catalog packages, installs runnable `LAPP` payloads into LiquidFS, runs installed apps, and removes installed packages
 - a Launch Apps window that opens built-in apps and runs installed Store apps
 - an App Manager inside Personalize for running/removing installed apps and viewing filesystem persistence status
@@ -46,9 +46,27 @@ LiquidOS now has the first pieces of a real OS platform:
 Keyboard and mouse input still use the stable PS/2 polling path while timer IRQs
 drive scheduler accounting. User processes now carry entry RIP, user RSP,
 address-space, guard-page, exit-code, syscall-mask, file descriptor, and saved
-trap-frame metadata. Full timer-driven preemption and ELF loading are
-intentionally not implemented yet; the current app model is cooperative and
-uses the simpler flat `LAPP` binary format.
+trap-frame metadata. User exceptions now stop the offending app and preserve
+crash vector/error/RIP/fault-address details for `ps`. Timer IRQs can preempt
+ring-3 apps back into the kernel loader loop, but full desktop-wide preemptive
+scheduling, memory reclamation, and ELF loading are intentionally not
+implemented yet; the current app model still uses the simpler flat `LAPP`
+binary format.
+
+### User App ABI
+
+User apps can use the existing filesystem/process syscalls plus an early window
+ABI:
+
+- `SYS_WINDOW_CREATE`
+- `SYS_DRAW_TEXT`
+- `SYS_DRAW_RECT`
+- `SYS_POLL_EVENT`
+- `SYS_WINDOW_CLOSE`
+
+The window ABI currently allocates and validates kernel-owned window handles.
+Actual desktop rendering and event routing for user-created windows are the next
+step.
 
 ### Platform Capability Registry
 
@@ -79,7 +97,8 @@ platform readiness summary next to App Manager.
 The loader validates the header, maps text executable/user, maps data and bss
 user-writable, creates a guarded user stack, and starts the app in ring 3.
 `runhello` runs `APPS/HELLO.APP`; `runapps` loads `APPS/APP_A.APP` and
-`APPS/APP_B.APP` and switches between them cooperatively through `SYS_YIELD`.
+`APPS/APP_B.APP`; `runcrash` runs `APPS/CRASH.APP`, which intentionally page
+faults from ring 3 to test crash-safe process termination.
 
 ## Store and Personalization
 

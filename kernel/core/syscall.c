@@ -9,8 +9,67 @@
 #include <liquidos/usermode.h>
 #include <liquidos/vmm.h>
 
+#define USER_WINDOW_MAX 8
+
+typedef struct UserWindow {
+    bool used;
+    u32 id;
+    u32 owner_pid;
+    i32 x;
+    i32 y;
+    i32 width;
+    i32 height;
+    char title[32];
+} UserWindow;
+
+static UserWindow user_windows[USER_WINDOW_MAX];
+static u32 next_window_id = 1;
+
 void syscall_init(void) {
+    memset(user_windows, 0, sizeof(user_windows));
+    next_window_id = 1;
     serial_write_line("Syscall table initialized");
+}
+
+static UserWindow *find_user_window(u32 id, u32 owner_pid) {
+    for (size_t i = 0; i < USER_WINDOW_MAX; i++) {
+        if (user_windows[i].used && user_windows[i].id == id && user_windows[i].owner_pid == owner_pid) {
+            return &user_windows[i];
+        }
+    }
+    return NULL;
+}
+
+static u64 sys_window_create(const char *title, i32 width, i32 height) {
+    if (width < 80) {
+        width = 80;
+    }
+    if (height < 60) {
+        height = 60;
+    }
+    if (width > 640) {
+        width = 640;
+    }
+    if (height > 420) {
+        height = 420;
+    }
+
+    u32 owner = scheduler_current_pid();
+    for (size_t i = 0; i < USER_WINDOW_MAX; i++) {
+        if (!user_windows[i].used) {
+            user_windows[i].used = true;
+            user_windows[i].id = next_window_id++;
+            user_windows[i].owner_pid = owner;
+            user_windows[i].x = 120;
+            user_windows[i].y = 120;
+            user_windows[i].width = width;
+            user_windows[i].height = height;
+            strncpy(user_windows[i].title, title ? title : "User App", sizeof(user_windows[i].title) - 1);
+            user_windows[i].title[sizeof(user_windows[i].title) - 1] = 0;
+            return user_windows[i].id;
+        }
+    }
+    return 0;
 }
 
 u64 syscall_dispatch(InterruptFrame *frame) {
@@ -83,6 +142,21 @@ u64 syscall_dispatch(InterruptFrame *frame) {
     case SYS_HELLO:
         serial_write_line("sys_hello");
         return 0x514C49515549444FULL;
+    case SYS_WINDOW_CREATE:
+        return sys_window_create((const char *)(uintptr_t)frame->rbx, (i32)frame->rcx, (i32)frame->rdx);
+    case SYS_DRAW_TEXT:
+    case SYS_DRAW_RECT:
+        return find_user_window((u32)frame->rbx, scheduler_current_pid()) ? 0 : 1;
+    case SYS_POLL_EVENT:
+        return find_user_window((u32)frame->rbx, scheduler_current_pid()) ? 0 : 1;
+    case SYS_WINDOW_CLOSE: {
+        UserWindow *window = find_user_window((u32)frame->rbx, scheduler_current_pid());
+        if (!window) {
+            return 1;
+        }
+        memset(window, 0, sizeof(*window));
+        return 0;
+    }
     default:
         return (u64)-1;
     }

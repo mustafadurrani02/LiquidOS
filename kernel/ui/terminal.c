@@ -59,6 +59,7 @@ static const char *process_state_name(ProcessState state) {
     case PROCESS_RUNNING: return "running";
     case PROCESS_SLEEPING: return "sleep";
     case PROCESS_STOPPED: return "stopped";
+    case PROCESS_CRASHED: return "crashed";
     default: return "unused";
     }
 }
@@ -80,6 +81,17 @@ static void terminal_write_process(const Process *process) {
     append_text(line, sizeof(line), " ticks=");
     append_text(line, sizeof(line), ticks);
     terminal_write_line(line);
+    if (process->state == PROCESS_CRASHED) {
+        char value[24];
+        line[0] = 0;
+        append_text(line, sizeof(line), "  crash vector=");
+        u64_to_dec(process->crash_vector, value, sizeof(value));
+        append_text(line, sizeof(line), value);
+        append_text(line, sizeof(line), " rip=");
+        u64_to_hex(process->crash_rip, value, sizeof(value));
+        append_text(line, sizeof(line), value);
+        terminal_write_line(line);
+    }
 }
 
 static const char *skip_spaces(const char *text) {
@@ -137,7 +149,7 @@ static void execute_command(const char *command) {
 
     if (strcmp(command, "help") == 0) {
         terminal_write_line("Commands: help, clear, about, mem, ps, platform, drivers, services, security");
-        terminal_write_line("Apps: spawn, runhello, runapps, syscall, apps, download NAME, runapp NAME, uninstall NAME.");
+        terminal_write_line("Apps: spawn, runhello, runapps, runcrash, syscall, apps, download NAME, runapp NAME, uninstall NAME.");
         terminal_write_line("Files: ls, cat, touch, write, rm. Store: apps, download NAME, runapp NAME, uninstall NAME.");
     } else if (strcmp(command, "clear") == 0) {
         line_count = 0;
@@ -216,6 +228,9 @@ static void execute_command(const char *command) {
     } else if (strcmp(command, "runapps") == 0) {
         LoadResult loaded = loader_run_apps("APPS/APP_A.APP", "APPS/APP_B.APP");
         terminal_write_line(loaded.ok ? "Cooperative apps completed." : loaded.message);
+    } else if (strcmp(command, "runcrash") == 0) {
+        LoadResult loaded = loader_load_app("APPS/CRASH.APP");
+        terminal_write_line(loaded.ok ? "Unexpected crash app success." : loaded.message);
     } else if (strcmp(command, "syscall") == 0) {
         char value[32];
         char line[TERMINAL_LINE_LENGTH];

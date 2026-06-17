@@ -43,7 +43,8 @@ typedef enum ProcessState {
     PROCESS_READY,
     PROCESS_RUNNING,
     PROCESS_SLEEPING,
-    PROCESS_STOPPED
+    PROCESS_STOPPED,
+    PROCESS_CRASHED
 } ProcessState;
 
 typedef enum ProcessMode {
@@ -60,6 +61,10 @@ typedef struct Process {
     u64 user_base;
     u64 user_limit;
     u64 syscall_mask;
+    u64 crash_vector;
+    u64 crash_error;
+    u64 crash_rip;
+    u64 crash_address;
     AddressSpace address_space;
     u64 entry_rip;
     u64 user_rsp;
@@ -73,6 +78,8 @@ u32 process_spawn_kernel(const char *name);
 u32 process_spawn_user_stub(const char *name, AddressSpace address_space, u64 entry_rip, u64 user_rsp, u64 user_base, u64 user_limit, u64 syscall_mask);
 bool process_exit_current(i32 code);
 bool process_yield_current(void);
+bool process_preempt_current(void);
+bool process_crash_current(u64 vector, u64 error_code, u64 rip, u64 fault_address);
 i32 process_open_current(const char *path);
 i64 process_read_current(i32 fd, void *buffer, size_t buffer_size);
 i64 process_write_current(i32 fd, const char *contents);

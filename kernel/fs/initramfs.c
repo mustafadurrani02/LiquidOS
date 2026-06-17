@@ -138,6 +138,27 @@ static size_t build_lapp(u8 *out, const char *message, u32 repeats, bool yield_b
     return (size_t)(header->text_offset + header->text_size);
 }
 
+static size_t build_crash_lapp(u8 *out) {
+    memset(out, 0, FS_CONTENT_LENGTH);
+
+    LappHeader *header = (LappHeader *)(void *)out;
+    memcpy(header->magic, LAPP_MAGIC, 4);
+    header->version = LAPP_VERSION;
+    header->header_size = sizeof(LappHeader);
+    header->entry_offset = 0;
+    header->text_offset = sizeof(LappHeader);
+    header->stack_size = VMM_PAGE_SIZE;
+    header->syscall_mask = (1ULL << SYS_WRITE) | (1ULL << SYS_EXIT) | (1ULL << SYS_YIELD);
+
+    u8 *text = out + header->text_offset;
+    size_t index = 0;
+    text[index++] = 0x48; text[index++] = 0x31; text[index++] = 0xC0; /* xor rax, rax */
+    text[index++] = 0x48; text[index++] = 0x8B; text[index++] = 0x00; /* mov rax, [rax] */
+    text[index++] = 0xEB; text[index++] = 0xFE;                       /* should never run */
+    header->text_size = index;
+    return (size_t)(header->text_offset + header->text_size);
+}
+
 static u32 checksum_bytes(const u8 *data, size_t count) {
     u32 sum = 0;
     for (size_t i = 0; i < count; i++) {
@@ -212,6 +233,8 @@ static void fs_load_defaults(void) {
     set_file_bytes(10, "APPS/APP_A.APP", app, size);
     size = build_lapp(app, "app B yielded from ring 3\n", 3, true);
     set_file_bytes(11, "APPS/APP_B.APP", app, size);
+    size = build_crash_lapp(app);
+    set_file_bytes(12, "APPS/CRASH.APP", app, size);
 }
 
 void fs_init(void) {

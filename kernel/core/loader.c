@@ -210,6 +210,9 @@ LoadResult loader_load_app(const char *path) {
     if (process && process->state == PROCESS_STOPPED) {
         return make_result(true, loaded.pid, "app exited");
     }
+    if (process && process->state == PROCESS_CRASHED) {
+        return make_result(false, loaded.pid, "app crashed");
+    }
     return make_result(false, loaded.pid, "app did not exit");
 }
 
@@ -231,6 +234,10 @@ LoadResult loader_run_apps(const char *left_path, const char *right_path) {
     if (left_process && right_process &&
         left_process->state == PROCESS_STOPPED && right_process->state == PROCESS_STOPPED) {
         return make_result(true, right.pid, "apps completed");
+    }
+    if ((left_process && left_process->state == PROCESS_CRASHED) ||
+        (right_process && right_process->state == PROCESS_CRASHED)) {
+        return make_result(false, right.pid, "app crashed");
     }
     return make_result(false, right.pid, "apps did not complete");
 }

@@ -28,7 +28,7 @@ void scheduler_tick(void) {
 
     for (size_t i = 0; i < count; i++) {
         const Process *candidate = process_get(i);
-        if (!candidate || candidate->state == PROCESS_STOPPED || candidate->state == PROCESS_SLEEPING) {
+        if (!candidate || candidate->state == PROCESS_STOPPED || candidate->state == PROCESS_CRASHED || candidate->state == PROCESS_SLEEPING) {
             continue;
         }
         if (!first_ready) {

@@ -8,6 +8,7 @@
 #include <liquidos/process.h>
 #include <liquidos/scheduler.h>
 #include <liquidos/syscall.h>
+#include <liquidos/usermode.h>
 #include <liquidos/vmm.h>
 #include <liquidos/debug.h>
 #include <liquidos/serial.h>
@@ -55,6 +56,31 @@ static u64 read_cr2(void) {
     u64 value;
     __asm__ volatile("mov %%cr2, %0" : "=r"(value));
     return value;
+}
+
+static bool frame_from_user(const InterruptFrame *frame) {
+    return frame && ((frame->cs & 3) == 3);
+}
+
+static void stop_crashed_user(InterruptFrame *frame, u64 fault_address) {
+    serial_write("User process crashed vector ");
+    char number[24];
+    u64_to_dec(frame->vector, number, sizeof(number));
+    serial_write(number);
+    serial_write(" error ");
+    u64_to_hex(frame->error_code, number, sizeof(number));
+    serial_write(number);
+    serial_write(" rip ");
+    serial_write_hex(frame->rip);
+    if (frame->vector == 14) {
+        serial_write(" cr2 ");
+        serial_write_hex(fault_address);
+    }
+    serial_write_line("");
+
+    process_crash_current(frame->vector, frame->error_code, frame->rip, fault_address);
+    vmm_switch(vmm_kernel_space());
+    user_return_to_kernel_now();
 }
 
 static void idt_set_gate(u8 vector, u64 handler) {
@@ -193,7 +219,6 @@ void interrupt_dispatch(InterruptFrame *frame) {
 
     if (vector == IRQ_BASE) {
         ticks++;
-        scheduler_tick();
         InputEvent event;
         event.type = INPUT_EVENT_TICK;
         event.ch = 0;
@@ -204,6 +229,11 @@ void interrupt_dispatch(InterruptFrame *frame) {
         event.middle_down = false;
         input_queue_push(&event);
         pic_eoi(0);
+        if (frame_from_user(frame) && process_preempt_current()) {
+            vmm_switch(vmm_kernel_space());
+            user_return_to_kernel_now();
+        }
+        scheduler_tick();
         return;
     }
 
@@ -235,8 +265,16 @@ void interrupt_dispatch(InterruptFrame *frame) {
     }
 
     if (vector == 14) {
-        vmm_report_page_fault(read_cr2(), frame->error_code, frame->rip);
+        u64 fault_address = read_cr2();
+        vmm_report_page_fault(fault_address, frame->error_code, frame->rip);
+        if (frame_from_user(frame)) {
+            stop_crashed_user(frame, fault_address);
+        }
         panic("Page fault");
+    }
+
+    if (vector < 32 && frame_from_user(frame)) {
+        stop_crashed_user(frame, 0);
     }
 
     serial_write("CPU exception vector ");

@@ -828,9 +828,23 @@ static void draw_app_slot(i32 x, i32 y, i32 size, bool active, bool hovered) {
     }
 }
 
+static void draw_glass_panel(i32 x, i32 y, i32 width, i32 height, i32 radius) {
+    gfx_fill_round_rect_alpha(x + 5, y + 7, width, height, radius, RGB(0, 0, 0), 62);
+    gfx_liquid_glass_rect(x, y, width, height, radius);
+}
+
+static void draw_glass_chip(i32 x, i32 y, i32 width, i32 height, const char *label, bool active) {
+    gfx_fill_round_rect_alpha(x + 2, y + 3, width, height, height / 2, RGB(0, 0, 0), 34);
+    gfx_liquid_glass_rect(x, y, width, height, height / 2);
+    if (active) {
+        gfx_fill_round_rect_alpha(x + 3, y + 3, width - 6, height - 6, height / 2, themes[current_theme].accent, 64);
+    }
+    gfx_draw_text(x + 12, y + (height / 2) - 5, label, active ? RGB(255, 255, 255) : RGB(34, 45, 56), 1);
+}
+
 static void draw_desktop_icon(i32 x, i32 y, const char *label, const char *glyph, Color accent) {
     gfx_fill_round_rect_alpha(x + 4, y + 5, 64, 64, 18, RGB(0, 0, 0), 70);
-    gfx_fill_round_rect_alpha(x, y, 64, 64, 18, RGB(255, 255, 255), 130);
+    gfx_liquid_glass_rect(x, y, 64, 64, 18);
     gfx_fill_round_rect_alpha(x + 12, y + 10, 40, 36, 14, accent, 230);
     gfx_draw_text(x + 22, y + 22, glyph, RGB(255, 255, 255), 1);
     gfx_draw_text(x - 2, y + 72, label, RGB(245, 248, 252), 1);
@@ -853,7 +867,6 @@ static void draw_background(void) {
 static void draw_window_frame(const Window *window, bool focused) {
     const DesktopTheme *theme = &themes[current_theme];
     Color shadow = RGB(6, 9, 13);
-    Color body = focused ? theme->panel : RGB(239, 243, 248);
     Color title = focused ? RGB(255, 255, 255) : RGB(236, 240, 246);
     Color border = focused ? theme->accent : RGB(184, 194, 204);
 
@@ -861,7 +874,8 @@ static void draw_window_frame(const Window *window, bool focused) {
     if (focused) {
         gfx_fill_round_rect_alpha(window->x - 5, window->y - 5, window->width + 10, window->height + 10, 20, theme->accent, 24);
     }
-    gfx_fill_round_rect_alpha(window->x, window->y, window->width, window->height, 18, body, 248);
+    gfx_liquid_glass_rect(window->x, window->y, window->width, window->height, 18);
+    gfx_fill_round_rect_alpha(window->x + 3, window->y + 34, window->width - 6, window->height - 38, 14, theme->panel, focused ? 218 : 190);
     gfx_draw_round_rect(window->x, window->y, window->width, window->height, 18, border);
     gfx_fill_round_rect_alpha(window->x + 1, window->y + 1, window->width - 2, 30, 17, title, focused ? 88 : 56);
     gfx_draw_text(window->x + 64, window->y + 9, window->title, focused ? theme->text : RGB(88, 96, 106), 1);
@@ -879,13 +893,12 @@ static void draw_window_frame(const Window *window, bool focused) {
 }
 
 static void draw_button(i32 x, i32 y, i32 width, const char *label, bool active) {
-    gfx_fill_round_rect_alpha(x, y, width, 28, 10, active ? RGB(216, 225, 255) : RGB(250, 252, 255), active ? 230 : 195);
-    gfx_draw_text(x + 12, y + 7, label, RGB(43, 50, 58), 1);
+    draw_glass_chip(x, y, width, 28, label, active);
 }
 
 static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
-    gfx_fill_rect(x, y, width, height, RGB(244, 247, 250));
-    gfx_fill_rect(x, y, width, 48, RGB(229, 235, 241));
+    draw_glass_panel(x, y, width, height, 16);
+    gfx_fill_round_rect_alpha(x + 8, y + 8, width - 16, 42, 14, RGB(255, 255, 255), 75);
     draw_button(x + 10, y + 10, 74, "NEW", false);
     draw_button(x + 92, y + 10, 86, "DELETE", false);
     draw_button(x + 188, y + 10, 112, "SAVE DEMO", false);
@@ -911,8 +924,8 @@ static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
         }
 
         bool selected = (i32)i == selected_file_index;
-        Color row = selected ? RGB(208, 224, 246) : ((i & 1) == 0 ? RGB(236, 241, 245) : RGB(245, 248, 250));
-        gfx_fill_round_rect_alpha(x + 10, row_y - 3, list_w, row_h - 3, 7, row, selected ? 240 : 220);
+        Color row = selected ? RGB(208, 224, 246) : RGB(255, 255, 255);
+        gfx_fill_round_rect_alpha(x + 10, row_y - 3, list_w, row_h - 3, 7, row, selected ? 170 : 92);
 
         char size_text[24];
         u64_to_dec(file->size, size_text, sizeof(size_text));
@@ -921,7 +934,7 @@ static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
         row_y += row_h;
     }
 
-    gfx_fill_round_rect_alpha(preview_x, y + 58, width - list_w - 34, height - 72, 12, RGB(255, 255, 255), 230);
+    draw_glass_panel(preview_x, y + 58, width - list_w - 34, height - 72, 16);
     const FsFile *selected = fs_get_file((size_t)selected_file_index);
     if (selected) {
         gfx_draw_text(preview_x + 14, y + 74, selected->name, RGB(35, 43, 50), 1);
@@ -932,8 +945,8 @@ static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
 
 static void draw_store_window(i32 x, i32 y, i32 width, i32 height) {
     const DesktopTheme *theme = &themes[current_theme];
-    gfx_fill_rect(x, y, width, height, RGB(245, 248, 252));
-    gfx_fill_round_rect_alpha(x + 14, y + 14, width - 28, 46, 16, theme->accent, 52);
+    draw_glass_panel(x, y, width, height, 16);
+    gfx_fill_round_rect_alpha(x + 14, y + 14, width - 28, 46, 18, theme->accent, 46);
     gfx_draw_text(x + 28, y + 25, "LiquidOS Store", theme->text, 2);
 
     char summary[64];
@@ -957,9 +970,9 @@ static void draw_store_window(i32 x, i32 y, i32 width, i32 height) {
 
         bool installed = app_store_is_installed(i);
         i32 row_y = card_y + (i32)i * 86;
-        Color card = installed ? RGB(235, 249, 241) : RGB(255, 255, 255);
-        gfx_fill_round_rect_alpha(x + 16, row_y, width - 32, 72, 16, RGB(0, 0, 0), 28);
-        gfx_fill_round_rect(x + 14, row_y - 2, width - 32, 72, 16, card);
+        Color card = installed ? RGB(210, 246, 226) : RGB(255, 255, 255);
+        gfx_liquid_glass_rect(x + 14, row_y - 2, width - 32, 72, 18);
+        gfx_fill_round_rect_alpha(x + 14, row_y - 2, width - 32, 72, 18, card, installed ? 66 : 36);
         gfx_fill_round_rect_alpha(x + 28, row_y + 13, 42, 42, 14, theme->accent, 145);
         gfx_draw_text(x + 42, row_y + 24, app->name, RGB(255, 255, 255), 1);
         gfx_draw_text(x + 84, row_y + 12, app->display_name, theme->text, 1);
@@ -981,7 +994,8 @@ static void draw_store_window(i32 x, i32 y, i32 width, i32 height) {
 
 static void draw_launcher_tile(i32 x, i32 y, const char *name, const char *kind, Color accent) {
     gfx_fill_round_rect_alpha(x + 3, y + 4, 112, 82, 18, RGB(0, 0, 0), 32);
-    gfx_fill_round_rect(x, y, 112, 82, 18, RGB(255, 255, 255));
+    gfx_liquid_glass_rect(x, y, 112, 82, 18);
+    gfx_fill_round_rect_alpha(x, y, 112, 82, 18, RGB(255, 255, 255), 24);
     gfx_fill_round_rect_alpha(x + 34, y + 12, 44, 34, 14, accent, 220);
     gfx_draw_text(x + 18, y + 54, name, RGB(35, 43, 52), 1);
     gfx_draw_text(x + 18, y + 68, kind, RGB(100, 110, 120), 1);
@@ -989,7 +1003,7 @@ static void draw_launcher_tile(i32 x, i32 y, const char *name, const char *kind,
 
 static void draw_launcher_window(i32 x, i32 y, i32 width, i32 height) {
     const DesktopTheme *theme = &themes[current_theme];
-    gfx_fill_rect(x, y, width, height, RGB(246, 248, 252));
+    draw_glass_panel(x, y, width, height, 16);
     gfx_draw_text(x + 22, y + 22, "Launch Apps", theme->text, 2);
     gfx_draw_text(x + 24, y + 52, "Built-in tools and installed Store apps.", RGB(82, 94, 104), 1);
 
@@ -1007,7 +1021,8 @@ static void draw_launcher_window(i32 x, i32 y, i32 width, i32 height) {
         }
         const StoreApp *app = app_store_get(i);
         i32 row_y = installed_y + (i32)visible * 44;
-        gfx_fill_round_rect_alpha(x + 22, row_y, width - 56, 36, 12, RGB(255, 255, 255), 235);
+        gfx_liquid_glass_rect(x + 22, row_y, width - 56, 36, 14);
+        gfx_fill_round_rect_alpha(x + 22, row_y, width - 56, 36, 14, RGB(255, 255, 255), 42);
         gfx_fill_round_rect_alpha(x + 34, row_y + 8, 20, 20, 8, theme->accent, 210);
         gfx_draw_text(x + 66, row_y + 10, app->display_name, theme->text, 1);
         gfx_draw_text(x + width - 130, row_y + 10, "RUN", RGB(72, 120, 92), 1);
@@ -1022,7 +1037,7 @@ static void draw_launcher_window(i32 x, i32 y, i32 width, i32 height) {
 static void draw_app_view_window(i32 x, i32 y, i32 width, i32 height) {
     const DesktopTheme *theme = &themes[current_theme];
     const StoreApp *app = app_store_get(selected_store_app);
-    gfx_fill_rect(x, y, width, height, RGB(248, 250, 253));
+    draw_glass_panel(x, y, width, height, 16);
     if (!app) {
         gfx_draw_text(x + 22, y + 22, "No app selected", theme->text, 2);
         return;
@@ -1037,7 +1052,7 @@ static void draw_app_view_window(i32 x, i32 y, i32 width, i32 height) {
     gfx_draw_text(x + width - 84, y + 31, "REMOVE", RGB(255, 255, 255), 1);
 
     const FsFile *manifest = fs_find(app_store_manifest_path(selected_store_app));
-    gfx_fill_round_rect_alpha(x + 22, y + 102, width - 44, height - 126, 14, RGB(255, 255, 255), 235);
+    draw_glass_panel(x + 22, y + 102, width - 44, height - 126, 16);
     gfx_draw_text(x + 38, y + 118, "Manifest", theme->text, 1);
     if (manifest) {
         char line[96];
@@ -1069,10 +1084,11 @@ static void draw_app_view_window(i32 x, i32 y, i32 width, i32 height) {
 
 static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     const DesktopTheme *theme = &themes[current_theme];
-    gfx_fill_rect(x, y, width, height, RGB(247, 249, 252));
+    draw_glass_panel(x, y, width, height, 16);
     gfx_draw_text(x + 22, y + 18, "System Settings", theme->text, 2);
     gfx_draw_text(x + 24, y + 48, "Appearance, Apps, Storage, Platform, and About.", RGB(82, 94, 104), 1);
-    gfx_fill_round_rect_alpha(x + 18, y + 68, width - 36, 26, 12, RGB(255, 255, 255), 200);
+    gfx_liquid_glass_rect(x + 18, y + 68, width - 36, 26, 13);
+    gfx_fill_round_rect_alpha(x + 18, y + 68, width - 36, 26, 13, RGB(255, 255, 255), 45);
     gfx_draw_text(x + 32, y + 76, "Appearance", theme->text, 1);
     gfx_draw_text(x + 134, y + 76, "Apps", RGB(82, 94, 104), 1);
     gfx_draw_text(x + 184, y + 76, "Storage", RGB(82, 94, 104), 1);
@@ -1086,7 +1102,8 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
         const DesktopTheme *choice = &themes[i];
         i32 row_y = start_y + 18 + (i32)i * 46;
         bool selected = i == current_theme;
-        gfx_fill_round_rect_alpha(x + 18, row_y, theme_w, 36, 14, selected ? choice->accent : RGB(255, 255, 255), selected ? 70 : 235);
+        gfx_liquid_glass_rect(x + 18, row_y, theme_w, 36, 14);
+        gfx_fill_round_rect_alpha(x + 18, row_y, theme_w, 36, 14, selected ? choice->accent : RGB(255, 255, 255), selected ? 76 : 32);
         gfx_draw_round_rect(x + 18, row_y, theme_w, 36, 14, selected ? choice->accent : RGB(214, 222, 230));
         gfx_fill_round_rect_alpha(x + 32, row_y + 9, 24, 24, 9, choice->wash_top, 230);
         gfx_fill_round_rect_alpha(x + 50, row_y + 9, 24, 24, 9, choice->wash_bottom, 210);
@@ -1099,7 +1116,7 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     i32 manager_x = x + width / 2 + 6;
     i32 manager_w = width / 2 - 34;
     gfx_draw_text(manager_x, y + 96, "Apps", theme->text, 1);
-    gfx_fill_round_rect_alpha(manager_x, y + 116, manager_w, 118, 14, RGB(255, 255, 255), 220);
+    draw_glass_panel(manager_x, y + 116, manager_w, 118, 16);
 
     size_t visible = 0;
     i32 row_y = y + 124;
@@ -1150,16 +1167,18 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
 
 static void draw_control_center_window(i32 x, i32 y, i32 width, i32 height) {
     const DesktopTheme *theme = &themes[current_theme];
-    gfx_fill_rect(x, y, width, height, RGB(245, 248, 252));
+    draw_glass_panel(x, y, width, height, 16);
     gfx_draw_text(x + 22, y + 22, "Control Center", theme->text, 2);
     gfx_draw_text(x + 24, y + 52, "Quick controls for the LiquidOS shell.", RGB(82, 94, 104), 1);
 
-    gfx_fill_round_rect_alpha(x + 22, y + 64, 132, 42, 14, wifi_enabled ? RGB(210, 244, 225) : RGB(244, 226, 226), 240);
+    gfx_liquid_glass_rect(x + 22, y + 64, 132, 42, 16);
+    gfx_fill_round_rect_alpha(x + 22, y + 64, 132, 42, 16, wifi_enabled ? RGB(210, 244, 225) : RGB(244, 226, 226), 92);
     gfx_draw_text(x + 38, y + 78, wifi_enabled ? "Wi-Fi On" : "Wi-Fi Off", RGB(35, 50, 58), 1);
-    gfx_fill_round_rect_alpha(x + 166, y + 64, 132, 42, 14, battery_saver ? RGB(255, 240, 205) : RGB(232, 240, 250), 240);
+    gfx_liquid_glass_rect(x + 166, y + 64, 132, 42, 16);
+    gfx_fill_round_rect_alpha(x + 166, y + 64, 132, 42, 16, battery_saver ? RGB(255, 240, 205) : RGB(232, 240, 250), 92);
     gfx_draw_text(x + 182, y + 78, battery_saver ? "Battery Save" : "Full Power", RGB(35, 50, 58), 1);
 
-    gfx_fill_round_rect_alpha(x + 22, y + 124, width - 44, 58, 16, RGB(255, 255, 255), 220);
+    draw_glass_panel(x + 22, y + 124, width - 44, 58, 18);
     gfx_draw_text(x + 40, y + 138, themes[current_theme].name, theme->text, 1);
     gfx_draw_text(x + 40, y + 158, fs_persistence_available() ? "Storage: disk-backed" : "Storage: RAM only", RGB(82, 94, 104), 1);
 
@@ -1225,18 +1244,21 @@ static void draw_taskbar(void) {
     i32 app_size = compact ? 44 : 52;
 
     gfx_fill_round_rect_plain_alpha(bar.x + 4, bar.y + 6, bar.w, bar.h, radius, RGB(0, 0, 0), 90);
-    gfx_fill_round_rect_plain_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(18, 20, 24), 224);
+    gfx_liquid_glass_rect(bar.x, bar.y, bar.w, bar.h, radius);
+    gfx_fill_round_rect_plain_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(18, 20, 24), 108);
     gfx_fill_round_rect_plain_alpha(bar.x + 3, bar.y + 3, bar.w - 6, bar.h / 2, radius, RGB(255, 255, 255), 18);
 
     bool logo_hover = hover_zone == 1;
-    gfx_fill_round_rect_plain_alpha(bar.logo_x - 4, bar.y + 8, compact ? 122 : 150, bar.h - 16, 18, RGB(255, 255, 255), logo_hover ? 42 : 20);
+    gfx_liquid_glass_rect(bar.logo_x - 4, bar.y + 8, compact ? 122 : 150, bar.h - 16, 18);
+    gfx_fill_round_rect_plain_alpha(bar.logo_x - 4, bar.y + 8, compact ? 122 : 150, bar.h - 16, 18, RGB(255, 255, 255), logo_hover ? 44 : 16);
     gfx_draw_argb8888_image_scaled(bar.logo_x, bar.y + (bar.h - logo_size) / 2, logo_size, logo_size,
                                    liquidos_logo_argb, LIQUIDOS_LOGO_WIDTH, LIQUIDOS_LOGO_HEIGHT);
     gfx_draw_text(bar.logo_x + logo_size + 10, bar.y + (compact ? 18 : 22), "LiquidOS", RGB(242, 245, 250), text_scale);
 
     bool control_hover = hover_zone == 2;
     i32 control_w = bar.x + bar.w - bar.control_x - 14;
-    gfx_fill_round_rect_plain_alpha(bar.control_x, bar.y + 8, control_w, bar.h - 16, 18, RGB(255, 255, 255), control_hover ? 42 : 22);
+    gfx_liquid_glass_rect(bar.control_x, bar.y + 8, control_w, bar.h - 16, 18);
+    gfx_fill_round_rect_plain_alpha(bar.control_x, bar.y + 8, control_w, bar.h - 16, 18, RGB(255, 255, 255), control_hover ? 42 : 18);
     gfx_draw_argb8888_image_scaled(bar.wifi_x, bar.y + (compact ? 18 : 20), compact ? 28 : 32, compact ? 28 : 32,
                                    system_icon_wifi_argb, SYSTEM_ICON_WIFI_WIDTH, SYSTEM_ICON_WIFI_HEIGHT);
     if (!wifi_enabled) {
@@ -1273,7 +1295,8 @@ static void draw_taskbar(void) {
     gfx_fill_circle(settings_x + app_size / 2, bar.slot_y + app_size / 2, 5, RGB(20, 24, 30));
 
     gfx_fill_round_rect_plain_alpha(bar.search_x + 2, bar.search_y + 3, bar.search_w, bar.search_h, bar.search_h / 2, RGB(0, 0, 0), 64);
-    gfx_fill_round_rect_plain_alpha(bar.search_x, bar.search_y, bar.search_w, bar.search_h, bar.search_h / 2, RGB(255, 255, 255), hover_zone == 30 ? 56 : 30);
+    gfx_liquid_glass_rect(bar.search_x, bar.search_y, bar.search_w, bar.search_h, bar.search_h / 2);
+    gfx_fill_round_rect_plain_alpha(bar.search_x, bar.search_y, bar.search_w, bar.search_h, bar.search_h / 2, RGB(255, 255, 255), hover_zone == 30 ? 48 : 18);
     gfx_draw_argb8888_image_scaled(bar.search_x + 12, bar.search_y + (compact ? 5 : 6), compact ? 26 : 30, compact ? 26 : 30,
                                    system_icon_search_argb, SYSTEM_ICON_SEARCH_WIDTH, SYSTEM_ICON_SEARCH_HEIGHT);
     gfx_draw_text(bar.search_x + (compact ? 46 : 52), bar.search_y + (compact ? 12 : 14), "Search or open Launch Apps", RGB(224, 229, 236), text_scale);

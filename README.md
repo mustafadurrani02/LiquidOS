@@ -12,13 +12,13 @@ It uses:
 - double-buffered drawing
 - PS/2 keyboard input
 - PS/2 mouse input
-- a macOS-inspired desktop shell with a top floating dock/menu bar, desktop shortcuts, Control Center, windows, terminal, file explorer placeholder, shutdown button, and reboot button
+- a macOS-inspired Liquid Glass desktop shell with a top floating dock/menu bar, desktop shortcuts, Control Center, windows, terminal, file explorer placeholder, shutdown button, and reboot button
 - a graphical Store install/open/remove flow, app launcher, and System Settings window with desktop themes
 - a native Liqueia browser shell with tabs, address input, bookmarks, history, and local pages
 - an interrupt-driven PIT timer, CPU exception reporting, syscall gate, process table, cooperative user scheduling, page-frame allocator, and VMM groundwork
 - an offline app catalog that validates simple `LPKG1` packages, installs runnable demo apps, receipts, and manifests into the LiquidOS filesystem
 - a platform capability registry that tracks hardware, storage, isolation, scheduling, app API, networking, security, services, tooling, and recovery readiness
-- a larger 1120-sector kernel reserve in the fixed boot image
+- a larger 1240-sector kernel reserve in the fixed boot image
 
 No Linux, BSD, ReactOS, TempleOS, or existing operating-system code is used.
 
@@ -127,11 +127,17 @@ icons, launcher search, and right-side control widgets for Wi-Fi, battery status
 clock, and Control Center. The desktop also has shortcut icons for Launch Apps,
 Files, and Store.
 
+The shell uses a Liquid Glass-inspired material throughout the OS: blurred
+rounded panels, translucent glass cards, bright rim highlights, layered shadows,
+floating chips, and content-preserving contrast on windows, Store cards,
+Launch Apps, System Settings, Control Center, desktop shortcuts, and the top
+dock.
+
 System Settings changes the desktop theme immediately. Themes tint the wallpaper
-wash, active window glow, Store cards, and dock accents without rebuilding the
-OS. The selected theme is saved to `SYSTEM/THEME.TXT` and loaded again when the
-desktop starts. System Settings also includes an App Manager and shows whether
-LiquidFS is disk-backed or RAM-only in the current VM.
+wash, active window glow, Store cards, glass surfaces, and dock accents without
+rebuilding the OS. The selected theme is saved to `SYSTEM/THEME.TXT` and loaded
+again when the desktop starts. System Settings also includes an App Manager and
+shows whether LiquidFS is disk-backed or RAM-only in the current VM.
 
 ## Liqueia Browser
 

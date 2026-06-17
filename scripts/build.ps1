@@ -76,7 +76,7 @@ Invoke-CheckedCommand $objcopy @("-O", "binary", $kernelElf, $kernelBin)
 
 $kernelBytes = [System.IO.File]::ReadAllBytes($kernelBin)
 $kernelSectorCount = [int][Math]::Ceiling($kernelBytes.Length / 512.0)
-$kernelMaxSectors = 1120
+$kernelMaxSectors = 1240
 if ($kernelSectorCount -lt 1) {
     throw "Kernel binary is empty."
 }

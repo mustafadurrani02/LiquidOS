@@ -79,7 +79,7 @@ kernel_padded="$build_dir/kernel.pad.bin"
 "$objcopy" -O binary "$kernel_elf" "$kernel_bin"
 
 kernel_bytes="$(wc -c < "$kernel_bin" | tr -d ' ')"
-kernel_max_sectors=1120
+kernel_max_sectors=1240
 kernel_sectors="$(( (kernel_bytes + 511) / 512 ))"
 if (( kernel_sectors < 1 || kernel_sectors > kernel_max_sectors )); then
     echo "Kernel uses $kernel_sectors sectors; expected between 1 and $kernel_max_sectors." >&2

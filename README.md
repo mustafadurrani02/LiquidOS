@@ -16,7 +16,7 @@ It uses:
 - a graphical Store install/open/remove flow, app launcher, and Personalize window with desktop themes
 - a native Liqueia browser shell with tabs, address input, bookmarks, history, and local pages
 - an interrupt-driven PIT timer, CPU exception reporting, syscall gate, process table, cooperative user scheduling, page-frame allocator, and VMM groundwork
-- an offline app catalog that installs packaged demo apps, receipts, and manifests into the LiquidOS filesystem
+- an offline app catalog that validates simple `LPKG1` packages, installs runnable demo apps, receipts, and manifests into the LiquidOS filesystem
 - a larger 1120-sector kernel reserve in the fixed boot image
 
 No Linux, BSD, ReactOS, TempleOS, or existing operating-system code is used.
@@ -35,9 +35,10 @@ LiquidOS now has the first pieces of a real OS platform:
 - a flat binary `LAPP` format with a validated header, text/data/bss/stack metadata, syscall mask, and built-in `HELLO`, `APP_A`, and `APP_B` demo apps
 - a `LAPP` loader that maps app text/data/bss into user memory, enters ring 3 with `iretq`, handles `SYS_WRITE`, `SYS_YIELD`, and `SYS_EXIT`, and returns safely to the kernel
 - per-process file descriptor tables for `open`, `read`, `write`, and `close`
-- terminal commands for `ps`, `spawn`, `runhello`, `runapps`, `syscall`, `apps`, `download NAME`, and `uninstall NAME`
-- a graphical Store window that installs offline catalog packages into LiquidFS, opens installed app detail pages, and removes installed packages
-- a Launch Apps window that opens built-in apps and lists installed Store apps
+- terminal commands for `ps`, `spawn`, `runhello`, `runapps`, `syscall`, `apps`, `download NAME`, `runapp NAME`, and `uninstall NAME`
+- a graphical Store window that validates offline catalog packages, installs runnable `LAPP` payloads into LiquidFS, runs installed apps, and removes installed packages
+- a Launch Apps window that opens built-in apps and runs installed Store apps
+- an App Manager inside Personalize for running/removing installed apps and viewing filesystem persistence status
 - desktop customization through the Personalize window with Liquid Gold, Aurora Blue, Glass Mint, and Night Violet themes persisted in `SYSTEM/THEME.TXT`
 
 Keyboard and mouse input still use the stable PS/2 polling path while timer IRQs
@@ -66,21 +67,31 @@ user-writable, creates a guarded user stack, and starts the app in ring 3.
 
 ## Store and Personalization
 
-The LiquidOS Store is currently an offline package catalog. It installs app
-files into `APPS/`, receipts into `STORE/INSTALLED/`, and app metadata manifests
-into `STORE/MANIFEST/`. Installed apps can be opened from the Store to inspect
-their manifest, removed from the Store, listed from Launch Apps, or managed from
-the terminal with `apps`, `download NAME`, and `uninstall NAME`.
+The LiquidOS Store is currently an offline package catalog. Catalog packages use
+a simple text `LPKG1` descriptor stored in `STORE/PACKAGES/`. The installer
+validates package magic/version, app metadata, entry path, payload path,
+requested syscall permissions, payload `LAPP` magic, and available LiquidFS file
+slots before copying the runnable payload into `APPS/`.
 
-Launch Apps opens from the taskbar search pill. It currently launches built-in
-apps and shows installed Store apps as early app-platform entries. Networking,
-remote package download, signatures, dependency resolution, and runtime launch
-for third-party Store packages are intentionally deferred.
+Successful installs create:
+
+- the runnable app payload in `APPS/`
+- a receipt in `STORE/INSTALLED/`
+- an app manifest in `STORE/MANIFEST/`
+
+Installed apps can run directly from the Store, Launch Apps, App Manager, or the
+terminal with `runapp NAME`. They can be removed from the Store, App Manager, or
+terminal with `uninstall NAME`.
+
+Launch Apps opens from the taskbar search pill. Networking, remote package
+download, signatures, dependency resolution, and third-party binary tooling are
+intentionally deferred.
 
 The Personalize window changes the desktop theme immediately. Themes tint the
 wallpaper wash, active window glow, Store cards, and dock accents without
 rebuilding the OS. The selected theme is saved to `SYSTEM/THEME.TXT` and loaded
-again when the desktop starts.
+again when the desktop starts. Personalize also includes an App Manager and
+shows whether LiquidFS is disk-backed or RAM-only in the current VM.
 
 ## Liqueia Browser
 

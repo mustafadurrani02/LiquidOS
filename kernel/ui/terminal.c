@@ -111,7 +111,7 @@ static void execute_command(const char *command) {
 
     if (strcmp(command, "help") == 0) {
         terminal_write_line("Commands: help, clear, about, mem, ps, spawn, runhello, runapps, syscall");
-        terminal_write_line("Files: ls, cat, touch, write, rm. Store: apps, download NAME, uninstall NAME.");
+        terminal_write_line("Files: ls, cat, touch, write, rm. Store: apps, download NAME, runapp NAME, uninstall NAME.");
     } else if (strcmp(command, "clear") == 0) {
         line_count = 0;
     } else if (strcmp(command, "about") == 0) {
@@ -185,7 +185,22 @@ static void execute_command(const char *command) {
     } else if (starts_with(command, "download ")) {
         char name[FS_NAME_LENGTH];
         copy_token(command + 9, name, sizeof(name));
-        terminal_write_line(app_store_install(name) ? "App package installed." : "App not found in catalog.");
+        terminal_write_line(app_store_install(name) ? "App package installed." : "App install failed.");
+    } else if (starts_with(command, "runapp ")) {
+        char name[FS_NAME_LENGTH];
+        copy_token(command + 7, name, sizeof(name));
+        LoadResult loaded = app_store_launch(name);
+        if (loaded.ok) {
+            char pid_text[24];
+            char line[TERMINAL_LINE_LENGTH];
+            u64_to_dec(loaded.pid, pid_text, sizeof(pid_text));
+            line[0] = 0;
+            append_text(line, sizeof(line), "App completed pid ");
+            append_text(line, sizeof(line), pid_text);
+            terminal_write_line(line);
+        } else {
+            terminal_write_line(loaded.message);
+        }
     } else if (starts_with(command, "uninstall ")) {
         char name[FS_NAME_LENGTH];
         copy_token(command + 10, name, sizeof(name));

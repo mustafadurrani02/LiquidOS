@@ -6,11 +6,11 @@
 #include <liquidos/syscall.h>
 #include <liquidos/vmm.h>
 
-#define FS_MAX_FILES 24
+#define FS_MAX_FILES 40
 #define FS_DISK_MAGIC 0x53464C51U
 #define FS_DISK_VERSION 1U
 #define FS_DISK_LBA 16U
-#define FS_DISK_SECTORS 32U
+#define FS_DISK_SECTORS 48U
 
 static FsFile files[FS_MAX_FILES];
 static u8 disk_image[FS_DISK_SECTORS * 512];
@@ -221,6 +221,10 @@ void fs_init(void) {
     }
 }
 
+size_t fs_capacity(void) {
+    return FS_MAX_FILES;
+}
+
 size_t fs_file_count(void) {
     size_t count = 0;
     for (size_t i = 0; i < FS_MAX_FILES; i++) {
@@ -229,6 +233,14 @@ size_t fs_file_count(void) {
         }
     }
     return count;
+}
+
+size_t fs_free_slots(void) {
+    return FS_MAX_FILES - fs_file_count();
+}
+
+bool fs_persistence_available(void) {
+    return disk_is_available();
 }
 
 const FsFile *fs_get_file(size_t index) {

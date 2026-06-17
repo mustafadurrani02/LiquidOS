@@ -14,7 +14,10 @@ typedef struct FsFile {
 } FsFile;
 
 void fs_init(void);
+size_t fs_capacity(void);
 size_t fs_file_count(void);
+size_t fs_free_slots(void);
+bool fs_persistence_available(void);
 const FsFile *fs_get_file(size_t index);
 const FsFile *fs_find(const char *name);
 i32 fs_find_index(const char *name);

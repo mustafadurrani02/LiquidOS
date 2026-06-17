@@ -83,6 +83,7 @@ static u64 last_clock_tick = 0;
 static char clock_text[6] = "00:00";
 static char date_text[9] = "00/00/00";
 static char taskbar_message[32] = "SEARCH";
+static char app_status_text[64] = "Install an app, then run it from Store or Launch Apps.";
 static bool wifi_enabled = true;
 static bool full_redraw_needed = true;
 static bool cursor_redraw_needed = true;
@@ -98,6 +99,8 @@ static i32 selected_file_index = 0;
 static u32 new_file_counter = 1;
 static size_t current_theme = 0;
 static size_t selected_store_app = 0;
+
+static void append_text(char *dest, size_t dest_size, const char *src);
 
 static i32 taskbar_x(void) {
     i32 screen_w = (i32)gfx_width();
@@ -279,6 +282,38 @@ static void set_taskbar_message(const char *message) {
     mark_dirty_taskbar();
 }
 
+static void set_app_status(const char *message) {
+    strncpy(app_status_text, message, sizeof(app_status_text) - 1);
+    app_status_text[sizeof(app_status_text) - 1] = 0;
+}
+
+static void launch_store_app(size_t index) {
+    const StoreApp *app = app_store_get(index);
+    LoadResult result = app_store_launch_by_index(index);
+    if (result.ok) {
+        char pid_text[16];
+        char message[64];
+        u64_to_dec(result.pid, pid_text, sizeof(pid_text));
+        message[0] = 0;
+        append_text(message, sizeof(message), app ? app->display_name : "App");
+        append_text(message, sizeof(message), " ran pid ");
+        append_text(message, sizeof(message), pid_text);
+        set_app_status(message);
+        set_taskbar_message("APP RAN");
+    } else {
+        char message[64];
+        message[0] = 0;
+        append_text(message, sizeof(message), "Launch failed: ");
+        append_text(message, sizeof(message), result.message);
+        set_app_status(message);
+        set_taskbar_message("APP FAILED");
+    }
+    mark_dirty_window(WINDOW_STORE);
+    mark_dirty_window(WINDOW_LAUNCHER);
+    mark_dirty_window(WINDOW_APP_VIEW);
+    mark_dirty_window(WINDOW_SETTINGS);
+}
+
 static i32 taskbar_hover_zone_at(i32 px, i32 py) {
     TaskbarLayout bar;
     taskbar_layout(&bar);
@@ -456,11 +491,20 @@ static void handle_store_click(const Window *window) {
         if (point_in_rect(mouse_x, mouse_y, primary_x, row_y + 22, 76, 30)) {
             if (installed) {
                 selected_store_app = i;
-                open_window(WINDOW_APP_VIEW);
-                set_taskbar_message("APP OPENED");
+                launch_store_app(i);
             } else if (app_store_install_by_index(i)) {
+                const StoreApp *app = app_store_get(i);
+                char message[64];
+                message[0] = 0;
+                append_text(message, sizeof(message), app ? app->display_name : "App");
+                append_text(message, sizeof(message), " installed.");
+                set_app_status(message);
                 set_taskbar_message("APP INSTALLED");
+                mark_dirty_window(WINDOW_LAUNCHER);
+                mark_dirty_window(WINDOW_SETTINGS);
             } else {
+                StoreInstallCheck check = app_store_validate_by_index(i);
+                set_app_status(check.message);
                 set_taskbar_message("INSTALL FAILED");
             }
             mark_dirty_rect(window->x, window->y, window->width, window->height);
@@ -468,12 +512,16 @@ static void handle_store_click(const Window *window) {
         }
         if (installed && point_in_rect(mouse_x, mouse_y, remove_x, row_y + 22, 78, 30)) {
             if (app_store_uninstall_by_index(i)) {
+                set_app_status("App removed.");
                 set_taskbar_message("APP REMOVED");
             } else {
+                set_app_status("Remove failed.");
                 set_taskbar_message("REMOVE FAILED");
             }
             mark_dirty_rect(window->x, window->y, window->width, window->height);
             mark_dirty_window(WINDOW_LAUNCHER);
+            mark_dirty_window(WINDOW_SETTINGS);
+            mark_dirty_window(WINDOW_APP_VIEW);
             return;
         }
     }
@@ -483,10 +531,11 @@ static void handle_settings_click(const Window *window) {
     i32 x = window->x + 6;
     i32 y = window->y + 30;
     i32 start_y = y + 78;
+    i32 theme_w = window->width / 2 - 38;
 
     for (size_t i = 0; i < sizeof(themes) / sizeof(themes[0]); i++) {
-        i32 row_y = start_y + (i32)i * 52;
-        if (point_in_rect(mouse_x, mouse_y, x + 18, row_y, window->width - 48, 42)) {
+        i32 row_y = start_y + 18 + (i32)i * 46;
+        if (point_in_rect(mouse_x, mouse_y, x + 18, row_y, theme_w, 36)) {
             current_theme = i;
             set_taskbar_message(themes[i].name);
             char theme_id[2];
@@ -496,6 +545,32 @@ static void handle_settings_click(const Window *window) {
             mark_dirty_full();
             return;
         }
+    }
+
+    i32 manager_x = x + window->width / 2 + 6;
+    i32 manager_w = window->width / 2 - 34;
+    i32 row_y = y + 100;
+    for (size_t i = 0; i < app_store_count(); i++) {
+        if (!app_store_is_installed(i)) {
+            continue;
+        }
+        if (point_in_rect(mouse_x, mouse_y, manager_x + manager_w - 112, row_y + 5, 44, 24)) {
+            selected_store_app = i;
+            launch_store_app(i);
+            return;
+        }
+        if (point_in_rect(mouse_x, mouse_y, manager_x + manager_w - 62, row_y + 5, 54, 24)) {
+            if (app_store_uninstall_by_index(i)) {
+                set_app_status("App removed from App Manager.");
+                set_taskbar_message("APP REMOVED");
+            } else {
+                set_app_status("Remove failed.");
+                set_taskbar_message("REMOVE FAILED");
+            }
+            mark_dirty_full();
+            return;
+        }
+        row_y += 38;
     }
 }
 
@@ -540,11 +615,31 @@ static void handle_launcher_click(const Window *window) {
         i32 row_y = installed_y + (i32)visible * 44;
         if (point_in_rect(mouse_x, mouse_y, x + 22, row_y, window->width - 56, 36)) {
             selected_store_app = i;
-            open_window(WINDOW_APP_VIEW);
-            set_taskbar_message("APP OPENED");
+            launch_store_app(i);
             return;
         }
         visible++;
+    }
+}
+
+static void handle_app_view_click(const Window *window) {
+    i32 x = window->x + 6;
+    i32 y = window->y + 30;
+    i32 width = window->width - 12;
+
+    if (point_in_rect(mouse_x, mouse_y, x + width - 166, y + 22, 62, 28)) {
+        launch_store_app(selected_store_app);
+        return;
+    }
+    if (point_in_rect(mouse_x, mouse_y, x + width - 96, y + 22, 72, 28)) {
+        if (app_store_uninstall_by_index(selected_store_app)) {
+            set_app_status("App removed.");
+            set_taskbar_message("APP REMOVED");
+        } else {
+            set_app_status("Remove failed.");
+            set_taskbar_message("REMOVE FAILED");
+        }
+        mark_dirty_full();
     }
 }
 
@@ -599,6 +694,8 @@ static void handle_window_click(void) {
                 handle_settings_click(window);
             } else if (kind == WINDOW_LAUNCHER) {
                 handle_launcher_click(window);
+            } else if (kind == WINDOW_APP_VIEW) {
+                handle_app_view_click(window);
             }
         }
 
@@ -758,12 +855,16 @@ static void draw_store_window(i32 x, i32 y, i32 width, i32 height) {
     gfx_fill_round_rect_alpha(x + 14, y + 14, width - 28, 46, 16, theme->accent, 52);
     gfx_draw_text(x + 28, y + 25, "LiquidOS Store", theme->text, 2);
 
-    char summary[48];
+    char summary[64];
     char count[16];
     u64_to_dec(app_store_installed_count(), count, sizeof(count));
     summary[0] = 0;
     append_text(summary, sizeof(summary), count);
     append_text(summary, sizeof(summary), " installed");
+    append_text(summary, sizeof(summary), " / ");
+    u64_to_dec(fs_free_slots(), count, sizeof(count));
+    append_text(summary, sizeof(summary), count);
+    append_text(summary, sizeof(summary), " slots free");
     gfx_draw_text(x + width - 150, y + 30, summary, RGB(63, 74, 84), 1);
 
     i32 card_y = y + 68;
@@ -782,17 +883,19 @@ static void draw_store_window(i32 x, i32 y, i32 width, i32 height) {
         gfx_draw_text(x + 42, row_y + 24, app->name, RGB(255, 255, 255), 1);
         gfx_draw_text(x + 84, row_y + 12, app->display_name, theme->text, 1);
         gfx_draw_text(x + 84, row_y + 30, app->description, RGB(72, 82, 92), 1);
-        gfx_draw_text(x + 84, row_y + 48, app->category, RGB(104, 114, 124), 1);
+        gfx_draw_text(x + 84, row_y + 48, app->package_name, RGB(104, 114, 124), 1);
 
         i32 primary_x = x + width - 190;
         i32 remove_x = x + width - 108;
         gfx_fill_round_rect_alpha(primary_x, row_y + 22, 76, 30, 11, installed ? RGB(68, 160, 104) : theme->accent, 230);
-        gfx_draw_text(primary_x + 18, row_y + 31, installed ? "OPEN" : "INSTALL", RGB(255, 255, 255), 1);
+        gfx_draw_text(primary_x + 18, row_y + 31, installed ? "RUN" : "INSTALL", RGB(255, 255, 255), 1);
         if (installed) {
             gfx_fill_round_rect_alpha(remove_x, row_y + 22, 78, 30, 11, RGB(180, 74, 82), 218);
             gfx_draw_text(remove_x + 13, row_y + 31, "REMOVE", RGB(255, 255, 255), 1);
         }
     }
+
+    gfx_draw_text(x + 22, y + height - 24, app_status_text, RGB(77, 88, 98), 1);
 }
 
 static void draw_launcher_tile(i32 x, i32 y, const char *name, const char *kind, Color accent) {
@@ -826,12 +929,13 @@ static void draw_launcher_window(i32 x, i32 y, i32 width, i32 height) {
         gfx_fill_round_rect_alpha(x + 22, row_y, width - 56, 36, 12, RGB(255, 255, 255), 235);
         gfx_fill_round_rect_alpha(x + 34, row_y + 8, 20, 20, 8, theme->accent, 210);
         gfx_draw_text(x + 66, row_y + 10, app->display_name, theme->text, 1);
-        gfx_draw_text(x + width - 130, row_y + 10, "OPEN", RGB(72, 120, 92), 1);
+        gfx_draw_text(x + width - 130, row_y + 10, "RUN", RGB(72, 120, 92), 1);
         visible++;
     }
     if (visible == 0) {
         gfx_draw_text(x + 28, installed_y + 8, "Install apps from the Store to see them here.", RGB(92, 104, 116), 1);
     }
+    gfx_draw_text(x + 28, y + height - 24, app_status_text, RGB(92, 104, 116), 1);
 }
 
 static void draw_app_view_window(i32 x, i32 y, i32 width, i32 height) {
@@ -846,6 +950,10 @@ static void draw_app_view_window(i32 x, i32 y, i32 width, i32 height) {
     gfx_fill_round_rect_alpha(x + 20, y + 20, 58, 58, 18, theme->accent, 220);
     gfx_draw_text(x + 96, y + 24, app->display_name, theme->text, 2);
     gfx_draw_text(x + 98, y + 56, app->description, RGB(78, 90, 102), 1);
+    gfx_fill_round_rect_alpha(x + width - 166, y + 22, 62, 28, 10, RGB(68, 160, 104), 220);
+    gfx_draw_text(x + width - 146, y + 31, "RUN", RGB(255, 255, 255), 1);
+    gfx_fill_round_rect_alpha(x + width - 96, y + 22, 72, 28, 10, RGB(180, 74, 82), 218);
+    gfx_draw_text(x + width - 84, y + 31, "REMOVE", RGB(255, 255, 255), 1);
 
     const FsFile *manifest = fs_find(app_store_manifest_path(selected_store_app));
     gfx_fill_round_rect_alpha(x + 22, y + 102, width - 44, height - 126, 14, RGB(255, 255, 255), 235);
@@ -875,29 +983,71 @@ static void draw_app_view_window(i32 x, i32 y, i32 width, i32 height) {
     } else {
         gfx_draw_text(x + 38, y + 142, "App is not installed.", RGB(120, 72, 78), 1);
     }
-    gfx_draw_text(x + 38, y + height - 38, "Runtime launchers for Store apps are next; built-ins open from Launch Apps.", RGB(93, 103, 113), 1);
+    gfx_draw_text(x + 38, y + height - 38, app_status_text, RGB(93, 103, 113), 1);
 }
 
 static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     const DesktopTheme *theme = &themes[current_theme];
     gfx_fill_rect(x, y, width, height, RGB(247, 249, 252));
     gfx_draw_text(x + 22, y + 22, "Personalize LiquidOS", theme->text, 2);
-    gfx_draw_text(x + 24, y + 52, "Choose a desktop mood. It updates instantly.", RGB(82, 94, 104), 1);
+    gfx_draw_text(x + 24, y + 52, "Themes, persistence, and installed app controls.", RGB(82, 94, 104), 1);
 
     i32 start_y = y + 78;
+    i32 theme_w = width / 2 - 38;
+    gfx_draw_text(x + 20, y + 72, "Themes", theme->text, 1);
     for (size_t i = 0; i < sizeof(themes) / sizeof(themes[0]); i++) {
         const DesktopTheme *choice = &themes[i];
-        i32 row_y = start_y + (i32)i * 52;
+        i32 row_y = start_y + 18 + (i32)i * 46;
         bool selected = i == current_theme;
-        gfx_fill_round_rect_alpha(x + 18, row_y, width - 48, 42, 14, selected ? choice->accent : RGB(255, 255, 255), selected ? 70 : 235);
-        gfx_draw_round_rect(x + 18, row_y, width - 48, 42, 14, selected ? choice->accent : RGB(214, 222, 230));
+        gfx_fill_round_rect_alpha(x + 18, row_y, theme_w, 36, 14, selected ? choice->accent : RGB(255, 255, 255), selected ? 70 : 235);
+        gfx_draw_round_rect(x + 18, row_y, theme_w, 36, 14, selected ? choice->accent : RGB(214, 222, 230));
         gfx_fill_round_rect_alpha(x + 32, row_y + 9, 24, 24, 9, choice->wash_top, 230);
         gfx_fill_round_rect_alpha(x + 50, row_y + 9, 24, 24, 9, choice->wash_bottom, 210);
-        gfx_draw_text(x + 88, row_y + 14, choice->name, choice->text, 1);
+        gfx_draw_text(x + 88, row_y + 11, choice->name, choice->text, 1);
         if (selected) {
-            gfx_draw_text(x + width - 110, row_y + 14, "ACTIVE", choice->text, 1);
+            gfx_draw_text(x + theme_w - 50, row_y + 11, "ACTIVE", choice->text, 1);
         }
     }
+
+    i32 manager_x = x + width / 2 + 6;
+    i32 manager_w = width / 2 - 34;
+    gfx_draw_text(manager_x, y + 72, "App Manager", theme->text, 1);
+    gfx_fill_round_rect_alpha(manager_x, y + 92, manager_w, 138, 14, RGB(255, 255, 255), 220);
+
+    size_t visible = 0;
+    i32 row_y = y + 100;
+    for (size_t i = 0; i < app_store_count(); i++) {
+        if (!app_store_is_installed(i)) {
+            continue;
+        }
+        const StoreApp *app = app_store_get(i);
+        gfx_draw_text(manager_x + 12, row_y + 10, app->display_name, theme->text, 1);
+        gfx_fill_round_rect_alpha(manager_x + manager_w - 112, row_y + 5, 44, 24, 9, RGB(68, 160, 104), 220);
+        gfx_draw_text(manager_x + manager_w - 101, row_y + 12, "RUN", RGB(255, 255, 255), 1);
+        gfx_fill_round_rect_alpha(manager_x + manager_w - 62, row_y + 5, 54, 24, 9, RGB(180, 74, 82), 218);
+        gfx_draw_text(manager_x + manager_w - 55, row_y + 12, "DEL", RGB(255, 255, 255), 1);
+        row_y += 38;
+        visible++;
+    }
+    if (visible == 0) {
+        gfx_draw_text(manager_x + 12, y + 112, "No Store apps installed yet.", RGB(92, 104, 116), 1);
+    }
+
+    char storage[64];
+    char number[16];
+    storage[0] = 0;
+    append_text(storage, sizeof(storage), fs_persistence_available() ? "Persistence: disk-backed" : "Persistence: RAM only");
+    gfx_draw_text(manager_x, y + 252, storage, RGB(82, 94, 104), 1);
+    storage[0] = 0;
+    append_text(storage, sizeof(storage), "LiquidFS: ");
+    u64_to_dec(fs_file_count(), number, sizeof(number));
+    append_text(storage, sizeof(storage), number);
+    append_text(storage, sizeof(storage), "/");
+    u64_to_dec(fs_capacity(), number, sizeof(number));
+    append_text(storage, sizeof(storage), number);
+    append_text(storage, sizeof(storage), " files used");
+    gfx_draw_text(manager_x, y + 272, storage, RGB(82, 94, 104), 1);
+    gfx_draw_text(manager_x, y + 296, app_status_text, RGB(82, 94, 104), 1);
 }
 
 static void draw_window(WindowKind kind) {

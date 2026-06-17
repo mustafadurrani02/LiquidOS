@@ -25,6 +25,7 @@ void gfx_fill_round_rect_plain_alpha(i32 x, i32 y, i32 width, i32 height, i32 ra
 void gfx_fill_round_rect_alpha(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color, u8 alpha);
 void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius);
 void gfx_blur_round_rect(i32 x, i32 y, i32 width, i32 height, i32 radius);
+void gfx_draw_round_rect_alpha(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color, u8 alpha);
 void gfx_draw_round_rect(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color);
 void gfx_draw_rgb565_image_scaled(i32 x, i32 y, i32 width, i32 height, const u16 *pixels, u32 src_width, u32 src_height);
 void gfx_draw_argb8888_image_scaled(i32 x, i32 y, i32 width, i32 height, const u32 *pixels, u32 src_width, u32 src_height);

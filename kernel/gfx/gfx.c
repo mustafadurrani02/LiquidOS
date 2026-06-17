@@ -472,6 +472,30 @@ void gfx_blur_round_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
     }
 }
 
+void gfx_draw_round_rect_alpha(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color, u8 alpha) {
+    if (!gfx_ready || width <= 0 || height <= 0 || alpha == 0) {
+        return;
+    }
+
+    for (i32 py = y; py < y + height; py++) {
+        for (i32 px = x; px < x + width; px++) {
+            u8 outer = round_rect_coverage(px, py, x, y, width, height, radius);
+            if (!outer) {
+                continue;
+            }
+
+            u8 inner = round_rect_coverage(px, py, x + 1, y + 1, width - 2, height - 2, radius - 1);
+            if (outer <= inner) {
+                continue;
+            }
+
+            u8 coverage = (u8)(outer - inner);
+            u8 effective = (u8)(((u32)alpha * coverage) / 255);
+            put_pixel(px, py, blend(get_pixel(px, py), color, effective));
+        }
+    }
+}
+
 void gfx_draw_round_rect(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color) {
     gfx_draw_line(x + radius, y, x + width - radius, y, color);
     gfx_draw_line(x + radius, y + height - 1, x + width - radius, y + height - 1, color);

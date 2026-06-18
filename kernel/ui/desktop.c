@@ -45,7 +45,8 @@ typedef struct TaskbarLayout {
     i32 logo_x;
     i32 slot_x;
     i32 slot_y;
-    i32 slot_size;
+    i32 slot_w;
+    i32 slot_h;
     i32 slot_step;
     i32 slots_available;
     i32 search_x;
@@ -120,10 +121,10 @@ static i32 taskbar_y(void) {
 static i32 taskbar_w(void) {
     i32 screen_w = (i32)gfx_width();
     i32 compact = screen_w < 900 ? 1 : 0;
-    i32 slot_size = compact ? 52 : 60;
+    i32 slot_w = compact ? 62 : 70;
     i32 slot_gap = compact ? 7 : 8;
     i32 side_pad = compact ? 22 : 28;
-    i32 width = side_pad * 2 + slot_size * 4 + slot_gap * 3;
+    i32 width = side_pad * 2 + slot_w * 4 + slot_gap * 3;
     i32 max_width = screen_w - 32;
     return width > max_width ? max_width : width;
 }
@@ -140,8 +141,9 @@ static void taskbar_layout(TaskbarLayout *layout) {
     layout->w = taskbar_w();
     layout->h = taskbar_h();
 
-    layout->slot_size = compact ? 52 : 60;
-    layout->slot_step = layout->slot_size + (compact ? 7 : 8);
+    layout->slot_w = compact ? 62 : 70;
+    layout->slot_h = compact ? 50 : 56;
+    layout->slot_step = layout->slot_w + (compact ? 7 : 8);
     layout->slots_available = 4;
     layout->search_w = 0;
     layout->search_h = 0;
@@ -150,8 +152,8 @@ static void taskbar_layout(TaskbarLayout *layout) {
     layout->volume_x = 0;
     layout->wifi_x = 0;
     layout->logo_x = 0;
-    layout->slot_y = layout->y + (layout->h - layout->slot_size) / 2;
-    layout->slot_x = layout->x + (layout->w - ((layout->slots_available - 1) * layout->slot_step + layout->slot_size)) / 2;
+    layout->slot_y = layout->y + (layout->h - layout->slot_h) / 2;
+    layout->slot_x = layout->x + (layout->w - ((layout->slots_available - 1) * layout->slot_step + layout->slot_w)) / 2;
 }
 
 static bool point_in_rect(i32 px, i32 py, i32 x, i32 y, i32 width, i32 height) {
@@ -324,7 +326,7 @@ static i32 taskbar_hover_zone_at(i32 px, i32 py) {
         return -1;
     }
     for (i32 i = 0; i < bar.slots_available; i++) {
-        if (point_in_rect(px, py, bar.slot_x + i * bar.slot_step, bar.slot_y, bar.slot_size, bar.slot_size)) {
+        if (point_in_rect(px, py, bar.slot_x + i * bar.slot_step, bar.slot_y, bar.slot_w, bar.slot_h)) {
             return 10 + i;
         }
     }
@@ -373,16 +375,16 @@ static void handle_taskbar_click(void) {
     TaskbarLayout bar;
     taskbar_layout(&bar);
 
-    if (point_in_rect(mouse_x, mouse_y, bar.slot_x, bar.slot_y, bar.slot_size, bar.slot_size)) {
+    if (point_in_rect(mouse_x, mouse_y, bar.slot_x, bar.slot_y, bar.slot_w, bar.slot_h)) {
         open_window(WINDOW_BROWSER);
         set_taskbar_message("BROWSER");
-    } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step, bar.slot_y, bar.slot_size, bar.slot_size)) {
+    } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step, bar.slot_y, bar.slot_w, bar.slot_h)) {
         open_window(WINDOW_FILES);
         set_taskbar_message("FILES");
-    } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step * 2, bar.slot_y, bar.slot_size, bar.slot_size)) {
+    } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step * 2, bar.slot_y, bar.slot_w, bar.slot_h)) {
         open_window(WINDOW_STORE);
         set_taskbar_message("STORE");
-    } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step * 3, bar.slot_y, bar.slot_size, bar.slot_size)) {
+    } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step * 3, bar.slot_y, bar.slot_w, bar.slot_h)) {
         open_window(WINDOW_SETTINGS);
         set_taskbar_message("SETTINGS");
     }
@@ -1209,22 +1211,23 @@ static void draw_taskbar(void) {
     i32 compact = gfx_width() < 900 ? 1 : 0;
     i32 radius = compact ? 36 : 42;
     i32 icon_size = compact ? 32 : 38;
-    i32 icon_pad = (bar.slot_size - icon_size) / 2;
-    i32 child_radius = dock_child_radius(bar.slot_size, bar.h, radius);
+    i32 icon_pad_x = (bar.slot_w - icon_size) / 2;
+    i32 icon_pad_y = (bar.slot_h - icon_size) / 2;
+    i32 child_radius = dock_child_radius(bar.slot_h, bar.h, radius);
 
     draw_dock_glass_capsule(bar.x, bar.y, bar.w, bar.h, radius);
 
     for (i32 i = 0; i < bar.slots_available; i++) {
         i32 slot_x = bar.slot_x + i * bar.slot_step;
-        draw_dock_glass_capsule(slot_x, bar.slot_y, bar.slot_size, bar.slot_size, child_radius);
+        draw_dock_glass_capsule(slot_x, bar.slot_y, bar.slot_w, bar.slot_h, child_radius);
     }
 
-    gfx_draw_argb8888_image_scaled(bar.slot_x + icon_pad, bar.slot_y + icon_pad, icon_size, icon_size,
+    gfx_draw_argb8888_image_scaled(bar.slot_x + icon_pad_x, bar.slot_y + icon_pad_y, icon_size, icon_size,
                                    app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT);
-    gfx_draw_argb8888_image_scaled(bar.slot_x + bar.slot_step + icon_pad, bar.slot_y + icon_pad, icon_size, icon_size,
+    gfx_draw_argb8888_image_scaled(bar.slot_x + bar.slot_step + icon_pad_x, bar.slot_y + icon_pad_y, icon_size, icon_size,
                                    app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT);
-    draw_store_symbol(bar.slot_x + bar.slot_step * 2 + icon_pad, bar.slot_y + icon_pad, icon_size);
-    draw_settings_symbol(bar.slot_x + bar.slot_step * 3 + icon_pad, bar.slot_y + icon_pad, icon_size);
+    draw_store_symbol(bar.slot_x + bar.slot_step * 2 + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);
+    draw_settings_symbol(bar.slot_x + bar.slot_step * 3 + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);
 }
 
 void ui_init(const BootInfo *boot) {

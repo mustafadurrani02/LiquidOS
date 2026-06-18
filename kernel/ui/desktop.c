@@ -1179,8 +1179,6 @@ static void draw_taskbar(void) {
     gfx_blur_round_rect(bar.x + 2, bar.y + 2, bar.w - 4, bar.h - 4, radius - 2);
 
     gfx_fill_round_rect_plain_alpha(bar.x + 2, bar.y + 2, bar.w - 4, bar.h - 4, radius - 2, RGB(255, 255, 255), 5);
-    gfx_fill_round_rect_plain_alpha(bar.x + 8, bar.y + 7, bar.w - 16, 4, 2, RGB(255, 255, 255), 16);
-    gfx_fill_round_rect_plain_alpha(bar.x + 8, bar.y + bar.h - 9, bar.w - 16, 3, 2, RGB(0, 0, 0), 8);
 
     gfx_draw_round_rect_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(255, 255, 255), 78);
     gfx_draw_round_rect_alpha(bar.x + 1, bar.y + 1, bar.w - 2, bar.h - 2, radius - 1, RGB(255, 255, 255), 24);

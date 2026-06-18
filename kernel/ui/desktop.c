@@ -1174,24 +1174,16 @@ static void draw_taskbar(void) {
     i32 compact = gfx_width() < 900 ? 1 : 0;
     i32 radius = compact ? 24 : 30;
 
-    gfx_fill_round_rect_plain_alpha(bar.x + 4, bar.y + 8, bar.w, bar.h, radius, RGB(0, 0, 0), 68);
-    gfx_fill_round_rect_plain_alpha(bar.x + 1, bar.y + 3, bar.w - 2, bar.h, radius, RGB(18, 12, 36), 22);
+    gfx_fill_round_rect_plain_alpha(bar.x + 3, bar.y + 7, bar.w, bar.h, radius, RGB(0, 0, 0), 42);
     gfx_liquid_glass_rect(bar.x, bar.y, bar.w, bar.h, radius);
 
-    gfx_fill_round_rect_plain_alpha(bar.x + 2, bar.y + 2, bar.w - 4, bar.h - 4, radius - 2, RGB(255, 255, 255), 22);
-    gfx_fill_round_rect_plain_alpha(bar.x + 6, bar.y + 6, bar.w - 12, bar.h / 2 - 2, radius - 6, RGB(244, 250, 255), 36);
-    gfx_fill_round_rect_plain_alpha(bar.x + 10, bar.y + bar.h / 2, bar.w - 20, bar.h / 2 - 10, radius - 10, RGB(92, 72, 168), 18);
-    gfx_fill_round_rect_plain_alpha(bar.x + 12, bar.y + 9, bar.w - 24, 13, 7, RGB(255, 255, 255), 72);
-    gfx_fill_round_rect_plain_alpha(bar.x + 24, bar.y + 14, bar.w - 48, 5, 3, RGB(255, 255, 255), 72);
+    gfx_fill_round_rect_plain_alpha(bar.x + 2, bar.y + 2, bar.w - 4, bar.h - 4, radius - 2, RGB(255, 255, 255), 10);
+    gfx_fill_round_rect_plain_alpha(bar.x + 7, bar.y + 6, bar.w - 14, 9, 5, RGB(255, 255, 255), 34);
+    gfx_fill_round_rect_plain_alpha(bar.x + 8, bar.y + bar.h - 10, bar.w - 16, 4, 2, RGB(0, 0, 0), 14);
 
-    gfx_draw_round_rect_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(236, 248, 255), 138);
-    gfx_draw_round_rect_alpha(bar.x + 1, bar.y + 1, bar.w - 2, bar.h - 2, radius - 1, RGB(118, 226, 255), 56);
-    gfx_draw_round_rect_alpha(bar.x + 4, bar.y + 4, bar.w - 8, bar.h - 8, radius - 4, RGB(255, 255, 255), 76);
-
-    gfx_fill_circle_alpha(bar.x + radius - 2, bar.y + radius - 2, radius / 2, RGB(255, 255, 255), 52);
-    gfx_fill_circle_alpha(bar.x + bar.w - radius + 1, bar.y + radius - 2, radius / 2, RGB(255, 255, 255), 58);
-    gfx_fill_circle_alpha(bar.x + radius - 2, bar.y + bar.h - radius + 1, radius / 3, RGB(139, 219, 255), 30);
-    gfx_fill_circle_alpha(bar.x + bar.w - radius + 1, bar.y + bar.h - radius + 1, radius / 3, RGB(196, 171, 255), 34);
+    gfx_draw_round_rect_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(255, 255, 255), 112);
+    gfx_draw_round_rect_alpha(bar.x + 1, bar.y + 1, bar.w - 2, bar.h - 2, radius - 1, RGB(255, 255, 255), 34);
+    gfx_draw_round_rect_alpha(bar.x + 3, bar.y + 3, bar.w - 6, bar.h - 6, radius - 3, RGB(255, 255, 255), 24);
 }
 
 void ui_init(const BootInfo *boot) {

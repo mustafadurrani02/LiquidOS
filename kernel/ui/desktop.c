@@ -1174,16 +1174,17 @@ static void draw_taskbar(void) {
     i32 compact = gfx_width() < 900 ? 1 : 0;
     i32 radius = compact ? 24 : 30;
 
-    gfx_fill_round_rect_plain_alpha(bar.x + 3, bar.y + 7, bar.w, bar.h, radius, RGB(0, 0, 0), 42);
+    gfx_fill_round_rect_plain_alpha(bar.x + 3, bar.y + 7, bar.w, bar.h, radius, RGB(0, 0, 0), 24);
     gfx_liquid_glass_rect(bar.x, bar.y, bar.w, bar.h, radius);
+    gfx_blur_round_rect(bar.x + 2, bar.y + 2, bar.w - 4, bar.h - 4, radius - 2);
 
-    gfx_fill_round_rect_plain_alpha(bar.x + 2, bar.y + 2, bar.w - 4, bar.h - 4, radius - 2, RGB(255, 255, 255), 10);
-    gfx_fill_round_rect_plain_alpha(bar.x + 7, bar.y + 6, bar.w - 14, 9, 5, RGB(255, 255, 255), 34);
-    gfx_fill_round_rect_plain_alpha(bar.x + 8, bar.y + bar.h - 10, bar.w - 16, 4, 2, RGB(0, 0, 0), 14);
+    gfx_fill_round_rect_plain_alpha(bar.x + 2, bar.y + 2, bar.w - 4, bar.h - 4, radius - 2, RGB(255, 255, 255), 5);
+    gfx_fill_round_rect_plain_alpha(bar.x + 8, bar.y + 7, bar.w - 16, 4, 2, RGB(255, 255, 255), 16);
+    gfx_fill_round_rect_plain_alpha(bar.x + 8, bar.y + bar.h - 9, bar.w - 16, 3, 2, RGB(0, 0, 0), 8);
 
-    gfx_draw_round_rect_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(255, 255, 255), 112);
-    gfx_draw_round_rect_alpha(bar.x + 1, bar.y + 1, bar.w - 2, bar.h - 2, radius - 1, RGB(255, 255, 255), 34);
-    gfx_draw_round_rect_alpha(bar.x + 3, bar.y + 3, bar.w - 6, bar.h - 6, radius - 3, RGB(255, 255, 255), 24);
+    gfx_draw_round_rect_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(255, 255, 255), 78);
+    gfx_draw_round_rect_alpha(bar.x + 1, bar.y + 1, bar.w - 2, bar.h - 2, radius - 1, RGB(255, 255, 255), 24);
+    gfx_draw_round_rect_alpha(bar.x + 3, bar.y + 3, bar.w - 6, bar.h - 6, radius - 3, RGB(255, 255, 255), 14);
 }
 
 void ui_init(const BootInfo *boot) {

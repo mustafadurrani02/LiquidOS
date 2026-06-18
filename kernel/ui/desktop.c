@@ -813,35 +813,59 @@ static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
     return (child_size * dock_radius) / dock_height;
 }
 
+static void draw_icon_tile(i32 x, i32 y, i32 size, Color top, Color bottom, Color accent) {
+    i32 radius = size / 4;
+    gfx_fill_round_rect_alpha(x, y, size, size, radius, bottom, 238);
+    gfx_fill_round_rect_alpha(x, y, size, size / 2 + 2, radius, top, 220);
+    gfx_fill_round_rect_alpha(x + 2, y + 2, size - 4, size / 3, radius - 2, RGB(255, 255, 255), 30);
+    gfx_fill_circle_alpha(x + size - size / 4, y + size / 4, size / 3, accent, 50);
+    gfx_draw_round_rect_alpha(x, y, size, size, radius, RGB(255, 255, 255), 72);
+}
+
 static void draw_browser_icon(i32 x, i32 y, i32 size) {
-    i32 cx = x + size / 2;
-    i32 cy = y + size / 2;
-    gfx_fill_circle_alpha(cx, cy, size / 2 - 3, RGB(58, 118, 255), 235);
-    gfx_fill_circle_alpha(cx - size / 7, cy - size / 7, size / 3, RGB(157, 112, 255), 170);
-    gfx_fill_circle_alpha(cx + size / 6, cy + size / 8, size / 3, RGB(65, 212, 255), 115);
-    gfx_draw_line(x + 4, cy + size / 5, x + size - 3, cy - size / 6, RGB(236, 244, 255));
-    gfx_draw_line(x + 5, cy + size / 5 + 1, x + size - 4, cy - size / 6 + 1, RGB(126, 181, 255));
-    gfx_fill_circle_alpha(cx - size / 7, cy - size / 8, size / 8, RGB(255, 255, 255), 105);
+    draw_icon_tile(x, y, size, RGB(70, 139, 255), RGB(91, 51, 196), RGB(70, 215, 255));
+    i32 inset = size / 8;
+    i32 s = size - inset * 2;
+    i32 ax = x + inset;
+    i32 ay = y + inset;
+    i32 cx = ax + s / 2;
+    i32 cy = ay + s / 2;
+    gfx_fill_circle_alpha(cx, cy, s / 2 - 2, RGB(70, 128, 255), 235);
+    gfx_fill_circle_alpha(cx - s / 7, cy - s / 7, s / 3, RGB(166, 116, 255), 170);
+    gfx_fill_circle_alpha(cx + s / 6, cy + s / 8, s / 3, RGB(67, 215, 255), 115);
+    gfx_draw_line(ax + 2, cy + s / 5, ax + s - 2, cy - s / 6, RGB(236, 244, 255));
+    gfx_draw_line(ax + 3, cy + s / 5 + 1, ax + s - 3, cy - s / 6 + 1, RGB(126, 181, 255));
+    gfx_fill_circle_alpha(cx - s / 7, cy - s / 8, s / 8, RGB(255, 255, 255), 105);
 }
 
 static void draw_files_icon(i32 x, i32 y, i32 size) {
-    i32 radius = size / 5;
-    gfx_fill_round_rect_alpha(x + size / 7, y + size / 4, size - size / 4, size / 2, radius, RGB(126, 72, 236), 238);
-    gfx_fill_round_rect_alpha(x + size / 7, y + size / 5, size / 3, size / 5, radius / 2, RGB(210, 132, 255), 238);
-    gfx_fill_round_rect_alpha(x + size / 8, y + size / 3, size - size / 4, size / 2, radius, RGB(219, 126, 255), 170);
-    gfx_fill_round_rect_alpha(x + size / 8, y + size / 2, size - size / 4, size / 4, radius, RGB(130, 82, 230), 95);
-    gfx_draw_round_rect_alpha(x + size / 7, y + size / 4, size - size / 4, size / 2, radius, RGB(255, 235, 255), 105);
+    draw_icon_tile(x, y, size, RGB(210, 116, 255), RGB(99, 61, 205), RGB(255, 154, 230));
+    i32 inset = size / 9;
+    i32 s = size - inset * 2;
+    i32 ax = x + inset;
+    i32 ay = y + inset;
+    i32 radius = s / 5;
+    gfx_fill_round_rect_alpha(ax + s / 9, ay + s / 4, s - s / 5, s / 2, radius, RGB(116, 68, 220), 238);
+    gfx_fill_round_rect_alpha(ax + s / 9, ay + s / 5, s / 3, s / 5, radius / 2, RGB(239, 160, 255), 238);
+    gfx_fill_round_rect_alpha(ax + s / 10, ay + s / 3, s - s / 5, s / 2, radius, RGB(224, 138, 255), 180);
+    gfx_fill_round_rect_alpha(ax + s / 10, ay + s / 2, s - s / 5, s / 4, radius, RGB(126, 78, 226), 95);
+    gfx_draw_round_rect_alpha(ax + s / 9, ay + s / 4, s - s / 5, s / 2, radius, RGB(255, 235, 255), 105);
 }
 
 static void draw_trash_icon(i32 x, i32 y, i32 size) {
+    draw_icon_tile(x, y, size, RGB(86, 103, 134), RGB(33, 41, 61), RGB(115, 153, 210));
+    i32 inset = size / 8;
+    i32 s = size - inset * 2;
+    i32 ax = x + inset;
+    i32 ay = y + inset;
     Color body = RGB(55, 66, 88);
     Color edge = RGB(155, 178, 214);
-    i32 left = x + size / 3;
-    i32 right = x + size - size / 3;
-    i32 top = y + size / 3;
-    i32 bottom = y + size - size / 5;
-    gfx_fill_round_rect_alpha(left, top, right - left, bottom - top, size / 8, body, 230);
-    gfx_fill_round_rect_alpha(left + 2, top + 2, right - left - 4, (bottom - top) / 2, size / 9, RGB(82, 96, 128), 130);
+    i32 left = ax + s / 3;
+    i32 right = ax + s - s / 3;
+    i32 top = ay + s / 3;
+    i32 bottom = ay + s - s / 5;
+    gfx_fill_round_rect_alpha(left, top, right - left, bottom - top, s / 8, body, 230);
+    gfx_fill_round_rect_alpha(left + 2, top + 2, right - left - 4, (bottom - top) / 2, s / 9, RGB(82, 96, 128), 130);
     gfx_draw_line(left - 3, top - 3, right + 3, top - 3, edge);
     gfx_draw_line(left + 3, top - 7, right - 3, top - 7, RGB(106, 126, 164));
     gfx_draw_line(left + 4, top + 4, left + 5, bottom - 4, RGB(130, 151, 190));
@@ -849,13 +873,12 @@ static void draw_trash_icon(i32 x, i32 y, i32 size) {
 }
 
 static void draw_add_icon(i32 x, i32 y, i32 size) {
+    draw_icon_tile(x, y, size, RGB(74, 151, 255), RGB(71, 63, 213), RGB(136, 96, 255));
     i32 cx = x + size / 2;
     i32 cy = y + size / 2;
-    gfx_fill_circle_alpha(cx, cy, size / 2 - 3, RGB(79, 122, 255), 190);
-    gfx_fill_circle_alpha(cx - size / 8, cy - size / 8, size / 3, RGB(159, 103, 255), 125);
-    gfx_fill_circle_alpha(cx + size / 8, cy + size / 10, size / 3, RGB(46, 209, 255), 105);
-    gfx_fill_round_rect_alpha(cx - size / 12, y + size / 4, size / 6, size / 2, size / 12, RGB(250, 253, 255), 230);
-    gfx_fill_round_rect_alpha(x + size / 4, cy - size / 12, size / 2, size / 6, size / 12, RGB(250, 253, 255), 230);
+    gfx_fill_circle_alpha(cx, cy, size / 3, RGB(80, 210, 255), 72);
+    gfx_fill_round_rect_alpha(cx - size / 13, y + size / 4, size / 6, size / 2, size / 13, RGB(250, 253, 255), 235);
+    gfx_fill_round_rect_alpha(x + size / 4, cy - size / 13, size / 2, size / 6, size / 13, RGB(250, 253, 255), 235);
 }
 
 static void draw_window_frame(const Window *window, bool focused) {

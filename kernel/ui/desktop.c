@@ -120,16 +120,16 @@ static i32 taskbar_y(void) {
 static i32 taskbar_w(void) {
     i32 screen_w = (i32)gfx_width();
     i32 compact = screen_w < 900 ? 1 : 0;
-    i32 slot_size = compact ? 38 : 44;
-    i32 slot_gap = compact ? 12 : 14;
-    i32 side_pad = compact ? 14 : 18;
+    i32 slot_size = compact ? 36 : 42;
+    i32 slot_gap = compact ? 8 : 9;
+    i32 side_pad = compact ? 16 : 20;
     i32 width = side_pad * 2 + slot_size * 4 + slot_gap * 3;
     i32 max_width = screen_w - 32;
     return width > max_width ? max_width : width;
 }
 
 static i32 taskbar_h(void) {
-    return gfx_width() < 900 ? 56 : 62;
+    return gfx_width() < 900 ? 52 : 58;
 }
 
 static void taskbar_layout(TaskbarLayout *layout) {
@@ -140,8 +140,8 @@ static void taskbar_layout(TaskbarLayout *layout) {
     layout->w = taskbar_w();
     layout->h = taskbar_h();
 
-    layout->slot_size = compact ? 38 : 44;
-    layout->slot_step = layout->slot_size + (compact ? 12 : 14);
+    layout->slot_size = compact ? 36 : 42;
+    layout->slot_step = layout->slot_size + (compact ? 8 : 9);
     layout->slots_available = 4;
     layout->search_w = 0;
     layout->search_h = 0;
@@ -804,38 +804,34 @@ static void draw_dock_glass_capsule(i32 x, i32 y, i32 width, i32 height, i32 rad
     gfx_blur_round_rect(x, y, width, height, radius);
     gfx_blur_round_rect(x + 2, y + 2, width - 4, height - 4, radius - 2);
     gfx_refract_round_rect_edges(x, y, width, height, radius, 2);
-    gfx_fill_round_rect_plain_alpha(x + 2, y + 2, width - 4, height - 4, radius - 2, RGB(255, 255, 255), 5);
-    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(255, 255, 255), 78);
+    gfx_fill_round_rect_plain_alpha(x + 2, y + 2, width - 4, height - 4, radius - 2, RGB(255, 255, 255), 3);
+    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(255, 255, 255), 58);
 }
 
 static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
-    return (child_size * dock_radius) / dock_height;
+    i32 radius = (child_size * dock_radius) / dock_height;
+    return radius > child_size / 3 ? child_size / 3 : radius;
 }
 
 static void draw_store_symbol(i32 x, i32 y, i32 size) {
     Color color = RGB(245, 248, 255);
-    i32 left = x + size / 4;
-    i32 right = x + size - size / 4;
-    i32 top = y + size / 3;
+    i32 left = x + size / 3;
+    i32 right = x + size - size / 3;
+    i32 top = y + size / 4;
     i32 bottom = y + size - size / 4;
     gfx_draw_line(left, top, right, top, color);
-    gfx_draw_line(left + 2, top, left + 5, bottom, color);
-    gfx_draw_line(right - 2, top, right - 5, bottom, color);
-    gfx_draw_line(left + 5, bottom, right - 5, bottom, color);
-    gfx_draw_line(x + size / 2 - 6, top, x + size / 2, y + size / 5, color);
-    gfx_draw_line(x + size / 2, y + size / 5, x + size / 2 + 6, top, color);
+    gfx_draw_line(left, top, x + size / 4, bottom, color);
+    gfx_draw_line(right, top, x + size - size / 4, bottom, color);
+    gfx_draw_line(x + size / 4, bottom, x + size - size / 4, bottom, color);
 }
 
 static void draw_settings_symbol(i32 x, i32 y, i32 size) {
     Color color = RGB(245, 248, 255);
     i32 cx = x + size / 2;
     i32 cy = y + size / 2;
-    gfx_fill_circle_alpha(cx, cy, size / 4, color, 160);
-    gfx_fill_circle_alpha(cx, cy, size / 9, RGB(20, 25, 38), 140);
-    gfx_draw_line(cx, y + size / 5, cx, y + size / 3, color);
-    gfx_draw_line(cx, y + size - size / 5, cx, y + size - size / 3, color);
-    gfx_draw_line(x + size / 5, cy, x + size / 3, cy, color);
-    gfx_draw_line(x + size - size / 5, cy, x + size - size / 3, cy, color);
+    gfx_draw_line(cx, y + size / 4, cx, y + size - size / 4, color);
+    gfx_draw_line(x + size / 4, cy, x + size - size / 4, cy, color);
+    gfx_fill_circle_alpha(cx, cy, size / 8, color, 170);
 }
 
 static void draw_window_frame(const Window *window, bool focused) {
@@ -1213,7 +1209,7 @@ static void draw_taskbar(void) {
     taskbar_layout(&bar);
     i32 compact = gfx_width() < 900 ? 1 : 0;
     i32 radius = compact ? 24 : 30;
-    i32 icon_size = compact ? 24 : 30;
+    i32 icon_size = compact ? 23 : 28;
     i32 icon_pad = (bar.slot_size - icon_size) / 2;
     i32 child_radius = dock_child_radius(bar.slot_size, bar.h, radius);
 

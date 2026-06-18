@@ -1209,7 +1209,7 @@ static void draw_taskbar(void) {
     TaskbarLayout bar;
     taskbar_layout(&bar);
     i32 compact = gfx_width() < 900 ? 1 : 0;
-    i32 radius = compact ? 36 : 42;
+    i32 radius = compact ? 27 : 32;
     i32 icon_size = compact ? 32 : 38;
     i32 icon_pad_x = (bar.slot_w - icon_size) / 2;
     i32 icon_pad_y = (bar.slot_h - icon_size) / 2;

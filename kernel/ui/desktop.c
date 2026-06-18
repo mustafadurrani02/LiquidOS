@@ -809,21 +809,21 @@ static void draw_dock_glass_capsule(i32 x, i32 y, i32 width, i32 height, i32 rad
     gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 74);
 }
 
+static void draw_colored_app_box(i32 x, i32 y, i32 width, i32 height, i32 radius, Color top, Color bottom, Color accent) {
+    gfx_blur_round_rect(x, y, width, height, radius);
+    gfx_refract_round_rect_edges(x, y, width, height, radius, 2);
+    gfx_fill_round_rect_alpha(x, y, width, height, radius, bottom, 220);
+    gfx_fill_round_rect_alpha(x, y, width, height / 2 + 3, radius, top, 190);
+    gfx_fill_round_rect_alpha(x + 3, y + 3, width - 6, height / 3, radius - 3, RGB(255, 255, 255), 24);
+    gfx_fill_circle_alpha(x + width - width / 4, y + height / 4, height / 3, accent, 44);
+    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 62);
+}
+
 static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
     return (child_size * dock_radius) / dock_height;
 }
 
-static void draw_icon_tile(i32 x, i32 y, i32 size, Color top, Color bottom, Color accent) {
-    i32 radius = size / 4;
-    gfx_fill_round_rect_alpha(x, y, size, size, radius, bottom, 238);
-    gfx_fill_round_rect_alpha(x, y, size, size / 2 + 2, radius, top, 220);
-    gfx_fill_round_rect_alpha(x + 2, y + 2, size - 4, size / 3, radius - 2, RGB(255, 255, 255), 30);
-    gfx_fill_circle_alpha(x + size - size / 4, y + size / 4, size / 3, accent, 50);
-    gfx_draw_round_rect_alpha(x, y, size, size, radius, RGB(255, 255, 255), 72);
-}
-
 static void draw_browser_icon(i32 x, i32 y, i32 size) {
-    draw_icon_tile(x, y, size, RGB(70, 139, 255), RGB(91, 51, 196), RGB(70, 215, 255));
     i32 inset = size / 8;
     i32 s = size - inset * 2;
     i32 ax = x + inset;
@@ -839,7 +839,6 @@ static void draw_browser_icon(i32 x, i32 y, i32 size) {
 }
 
 static void draw_files_icon(i32 x, i32 y, i32 size) {
-    draw_icon_tile(x, y, size, RGB(210, 116, 255), RGB(99, 61, 205), RGB(255, 154, 230));
     i32 inset = size / 9;
     i32 s = size - inset * 2;
     i32 ax = x + inset;
@@ -853,7 +852,6 @@ static void draw_files_icon(i32 x, i32 y, i32 size) {
 }
 
 static void draw_trash_icon(i32 x, i32 y, i32 size) {
-    draw_icon_tile(x, y, size, RGB(86, 103, 134), RGB(33, 41, 61), RGB(115, 153, 210));
     i32 inset = size / 8;
     i32 s = size - inset * 2;
     i32 ax = x + inset;
@@ -873,7 +871,6 @@ static void draw_trash_icon(i32 x, i32 y, i32 size) {
 }
 
 static void draw_add_icon(i32 x, i32 y, i32 size) {
-    draw_icon_tile(x, y, size, RGB(74, 151, 255), RGB(71, 63, 213), RGB(136, 96, 255));
     i32 cx = x + size / 2;
     i32 cy = y + size / 2;
     gfx_fill_circle_alpha(cx, cy, size / 3, RGB(80, 210, 255), 72);
@@ -1265,7 +1262,19 @@ static void draw_taskbar(void) {
 
     for (i32 i = 0; i < bar.slots_available; i++) {
         i32 slot_x = bar.slot_x + i * bar.slot_step;
-        draw_dock_glass_capsule(slot_x, bar.slot_y, bar.slot_w, bar.slot_h, child_radius);
+        if (i == 0) {
+            draw_colored_app_box(slot_x, bar.slot_y, bar.slot_w, bar.slot_h, child_radius,
+                                 RGB(78, 168, 255), RGB(86, 48, 190), RGB(56, 225, 255));
+        } else if (i == 1) {
+            draw_colored_app_box(slot_x, bar.slot_y, bar.slot_w, bar.slot_h, child_radius,
+                                 RGB(228, 124, 255), RGB(128, 66, 214), RGB(255, 174, 228));
+        } else if (i == 2) {
+            draw_colored_app_box(slot_x, bar.slot_y, bar.slot_w, bar.slot_h, child_radius,
+                                 RGB(82, 98, 128), RGB(28, 36, 56), RGB(114, 152, 205));
+        } else {
+            draw_colored_app_box(slot_x, bar.slot_y, bar.slot_w, bar.slot_h, child_radius,
+                                 RGB(78, 174, 255), RGB(28, 102, 220), RGB(48, 224, 255));
+        }
     }
 
     draw_browser_icon(bar.slot_x + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);

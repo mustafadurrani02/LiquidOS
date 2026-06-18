@@ -9,7 +9,6 @@
 #include <liquidos/power.h>
 #include <liquidos/terminal.h>
 #include <liquidos/ui.h>
-#include "../gfx/app_icons.h"
 #include "../gfx/background_image.h"
 
 typedef enum WindowKind {
@@ -814,25 +813,49 @@ static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
     return (child_size * dock_radius) / dock_height;
 }
 
-static void draw_store_symbol(i32 x, i32 y, i32 size) {
-    Color color = RGB(245, 248, 255);
-    i32 left = x + size / 3;
-    i32 right = x + size - size / 3;
-    i32 top = y + size / 4;
-    i32 bottom = y + size - size / 4;
-    gfx_draw_line(left, top, right, top, color);
-    gfx_draw_line(left, top, x + size / 4, bottom, color);
-    gfx_draw_line(right, top, x + size - size / 4, bottom, color);
-    gfx_draw_line(x + size / 4, bottom, x + size - size / 4, bottom, color);
-}
-
-static void draw_settings_symbol(i32 x, i32 y, i32 size) {
-    Color color = RGB(245, 248, 255);
+static void draw_browser_icon(i32 x, i32 y, i32 size) {
     i32 cx = x + size / 2;
     i32 cy = y + size / 2;
-    gfx_draw_line(cx, y + size / 4, cx, y + size - size / 4, color);
-    gfx_draw_line(x + size / 4, cy, x + size - size / 4, cy, color);
-    gfx_fill_circle_alpha(cx, cy, size / 8, color, 170);
+    gfx_fill_circle_alpha(cx, cy, size / 2 - 3, RGB(58, 118, 255), 235);
+    gfx_fill_circle_alpha(cx - size / 7, cy - size / 7, size / 3, RGB(157, 112, 255), 170);
+    gfx_fill_circle_alpha(cx + size / 6, cy + size / 8, size / 3, RGB(65, 212, 255), 115);
+    gfx_draw_line(x + 4, cy + size / 5, x + size - 3, cy - size / 6, RGB(236, 244, 255));
+    gfx_draw_line(x + 5, cy + size / 5 + 1, x + size - 4, cy - size / 6 + 1, RGB(126, 181, 255));
+    gfx_fill_circle_alpha(cx - size / 7, cy - size / 8, size / 8, RGB(255, 255, 255), 105);
+}
+
+static void draw_files_icon(i32 x, i32 y, i32 size) {
+    i32 radius = size / 5;
+    gfx_fill_round_rect_alpha(x + size / 7, y + size / 4, size - size / 4, size / 2, radius, RGB(126, 72, 236), 238);
+    gfx_fill_round_rect_alpha(x + size / 7, y + size / 5, size / 3, size / 5, radius / 2, RGB(210, 132, 255), 238);
+    gfx_fill_round_rect_alpha(x + size / 8, y + size / 3, size - size / 4, size / 2, radius, RGB(219, 126, 255), 170);
+    gfx_fill_round_rect_alpha(x + size / 8, y + size / 2, size - size / 4, size / 4, radius, RGB(130, 82, 230), 95);
+    gfx_draw_round_rect_alpha(x + size / 7, y + size / 4, size - size / 4, size / 2, radius, RGB(255, 235, 255), 105);
+}
+
+static void draw_trash_icon(i32 x, i32 y, i32 size) {
+    Color body = RGB(55, 66, 88);
+    Color edge = RGB(155, 178, 214);
+    i32 left = x + size / 3;
+    i32 right = x + size - size / 3;
+    i32 top = y + size / 3;
+    i32 bottom = y + size - size / 5;
+    gfx_fill_round_rect_alpha(left, top, right - left, bottom - top, size / 8, body, 230);
+    gfx_fill_round_rect_alpha(left + 2, top + 2, right - left - 4, (bottom - top) / 2, size / 9, RGB(82, 96, 128), 130);
+    gfx_draw_line(left - 3, top - 3, right + 3, top - 3, edge);
+    gfx_draw_line(left + 3, top - 7, right - 3, top - 7, RGB(106, 126, 164));
+    gfx_draw_line(left + 4, top + 4, left + 5, bottom - 4, RGB(130, 151, 190));
+    gfx_draw_line(right - 5, top + 4, right - 6, bottom - 4, RGB(35, 43, 62));
+}
+
+static void draw_add_icon(i32 x, i32 y, i32 size) {
+    i32 cx = x + size / 2;
+    i32 cy = y + size / 2;
+    gfx_fill_circle_alpha(cx, cy, size / 2 - 3, RGB(79, 122, 255), 190);
+    gfx_fill_circle_alpha(cx - size / 8, cy - size / 8, size / 3, RGB(159, 103, 255), 125);
+    gfx_fill_circle_alpha(cx + size / 8, cy + size / 10, size / 3, RGB(46, 209, 255), 105);
+    gfx_fill_round_rect_alpha(cx - size / 12, y + size / 4, size / 6, size / 2, size / 12, RGB(250, 253, 255), 230);
+    gfx_fill_round_rect_alpha(x + size / 4, cy - size / 12, size / 2, size / 6, size / 12, RGB(250, 253, 255), 230);
 }
 
 static void draw_window_frame(const Window *window, bool focused) {
@@ -1222,12 +1245,10 @@ static void draw_taskbar(void) {
         draw_dock_glass_capsule(slot_x, bar.slot_y, bar.slot_w, bar.slot_h, child_radius);
     }
 
-    gfx_draw_argb8888_image_scaled(bar.slot_x + icon_pad_x, bar.slot_y + icon_pad_y, icon_size, icon_size,
-                                   app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT);
-    gfx_draw_argb8888_image_scaled(bar.slot_x + bar.slot_step + icon_pad_x, bar.slot_y + icon_pad_y, icon_size, icon_size,
-                                   app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT);
-    draw_store_symbol(bar.slot_x + bar.slot_step * 2 + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);
-    draw_settings_symbol(bar.slot_x + bar.slot_step * 3 + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);
+    draw_browser_icon(bar.slot_x + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);
+    draw_files_icon(bar.slot_x + bar.slot_step + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);
+    draw_trash_icon(bar.slot_x + bar.slot_step * 2 + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);
+    draw_add_icon(bar.slot_x + bar.slot_step * 3 + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);
 }
 
 void ui_init(const BootInfo *boot) {

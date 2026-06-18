@@ -9,6 +9,7 @@
 #include <liquidos/power.h>
 #include <liquidos/terminal.h>
 #include <liquidos/ui.h>
+#include "../gfx/app_icons.h"
 #include "../gfx/background_image.h"
 
 typedef enum WindowKind {
@@ -798,6 +799,44 @@ static void draw_background(void) {
     gfx_draw_wallpaper();
 }
 
+static void draw_dock_glass_capsule(i32 x, i32 y, i32 width, i32 height, i32 radius) {
+    gfx_blur_round_rect(x, y, width, height, radius);
+    gfx_blur_round_rect(x + 2, y + 2, width - 4, height - 4, radius - 2);
+    gfx_refract_round_rect_edges(x, y, width, height, radius, 2);
+    gfx_fill_round_rect_plain_alpha(x + 2, y + 2, width - 4, height - 4, radius - 2, RGB(255, 255, 255), 5);
+    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(255, 255, 255), 78);
+}
+
+static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
+    return (child_size * dock_radius) / dock_height;
+}
+
+static void draw_store_symbol(i32 x, i32 y, i32 size) {
+    Color color = RGB(245, 248, 255);
+    i32 left = x + size / 4;
+    i32 right = x + size - size / 4;
+    i32 top = y + size / 3;
+    i32 bottom = y + size - size / 4;
+    gfx_draw_line(left, top, right, top, color);
+    gfx_draw_line(left + 2, top, left + 5, bottom, color);
+    gfx_draw_line(right - 2, top, right - 5, bottom, color);
+    gfx_draw_line(left + 5, bottom, right - 5, bottom, color);
+    gfx_draw_line(x + size / 2 - 6, top, x + size / 2, y + size / 5, color);
+    gfx_draw_line(x + size / 2, y + size / 5, x + size / 2 + 6, top, color);
+}
+
+static void draw_settings_symbol(i32 x, i32 y, i32 size) {
+    Color color = RGB(245, 248, 255);
+    i32 cx = x + size / 2;
+    i32 cy = y + size / 2;
+    gfx_fill_circle_alpha(cx, cy, size / 4, color, 160);
+    gfx_fill_circle_alpha(cx, cy, size / 9, RGB(20, 25, 38), 140);
+    gfx_draw_line(cx, y + size / 5, cx, y + size / 3, color);
+    gfx_draw_line(cx, y + size - size / 5, cx, y + size - size / 3, color);
+    gfx_draw_line(x + size / 5, cy, x + size / 3, cy, color);
+    gfx_draw_line(x + size - size / 5, cy, x + size - size / 3, cy, color);
+}
+
 static void draw_window_frame(const Window *window, bool focused) {
     const DesktopTheme *theme = &themes[current_theme];
     Color shadow = RGB(6, 9, 13);
@@ -1173,15 +1212,23 @@ static void draw_taskbar(void) {
     taskbar_layout(&bar);
     i32 compact = gfx_width() < 900 ? 1 : 0;
     i32 radius = compact ? 24 : 30;
+    i32 icon_size = compact ? 34 : 42;
+    i32 icon_pad = (bar.slot_size - icon_size) / 2;
+    i32 child_radius = dock_child_radius(bar.slot_size, bar.h, radius);
 
-    gfx_fill_round_rect_plain_alpha(bar.x + 3, bar.y + 7, bar.w, bar.h, radius, RGB(0, 0, 0), 24);
-    gfx_blur_round_rect(bar.x, bar.y, bar.w, bar.h, radius);
-    gfx_blur_round_rect(bar.x + 2, bar.y + 2, bar.w - 4, bar.h - 4, radius - 2);
-    gfx_refract_round_rect_edges(bar.x, bar.y, bar.w, bar.h, radius, 2);
+    draw_dock_glass_capsule(bar.x, bar.y, bar.w, bar.h, radius);
 
-    gfx_fill_round_rect_plain_alpha(bar.x + 2, bar.y + 2, bar.w - 4, bar.h - 4, radius - 2, RGB(255, 255, 255), 5);
+    for (i32 i = 0; i < bar.slots_available; i++) {
+        i32 slot_x = bar.slot_x + i * bar.slot_step;
+        draw_dock_glass_capsule(slot_x, bar.slot_y, bar.slot_size, bar.slot_size, child_radius);
+    }
 
-    gfx_draw_round_rect_alpha(bar.x, bar.y, bar.w, bar.h, radius, RGB(255, 255, 255), 78);
+    gfx_draw_argb8888_image_scaled(bar.slot_x + icon_pad, bar.slot_y + icon_pad, icon_size, icon_size,
+                                   app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT);
+    gfx_draw_argb8888_image_scaled(bar.slot_x + bar.slot_step + icon_pad, bar.slot_y + icon_pad, icon_size, icon_size,
+                                   app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT);
+    draw_store_symbol(bar.slot_x + bar.slot_step * 2 + icon_pad, bar.slot_y + icon_pad, icon_size);
+    draw_settings_symbol(bar.slot_x + bar.slot_step * 3 + icon_pad, bar.slot_y + icon_pad, icon_size);
 }
 
 void ui_init(const BootInfo *boot) {

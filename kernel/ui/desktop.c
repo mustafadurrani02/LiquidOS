@@ -120,15 +120,16 @@ static i32 taskbar_y(void) {
 static i32 taskbar_w(void) {
     i32 screen_w = (i32)gfx_width();
     i32 compact = screen_w < 900 ? 1 : 0;
-    i32 slot_size = compact ? 48 : 58;
-    i32 slot_step = compact ? 66 : 82;
-    i32 width = (4 - 1) * slot_step + slot_size + (compact ? 34 : 44);
+    i32 slot_size = compact ? 38 : 44;
+    i32 slot_gap = compact ? 12 : 14;
+    i32 side_pad = compact ? 14 : 18;
+    i32 width = side_pad * 2 + slot_size * 4 + slot_gap * 3;
     i32 max_width = screen_w - 32;
     return width > max_width ? max_width : width;
 }
 
 static i32 taskbar_h(void) {
-    return gfx_width() < 900 ? 70 : 82;
+    return gfx_width() < 900 ? 56 : 62;
 }
 
 static void taskbar_layout(TaskbarLayout *layout) {
@@ -139,8 +140,8 @@ static void taskbar_layout(TaskbarLayout *layout) {
     layout->w = taskbar_w();
     layout->h = taskbar_h();
 
-    layout->slot_size = compact ? 48 : 58;
-    layout->slot_step = compact ? 66 : 82;
+    layout->slot_size = compact ? 38 : 44;
+    layout->slot_step = layout->slot_size + (compact ? 12 : 14);
     layout->slots_available = 4;
     layout->search_w = 0;
     layout->search_h = 0;
@@ -1212,7 +1213,7 @@ static void draw_taskbar(void) {
     taskbar_layout(&bar);
     i32 compact = gfx_width() < 900 ? 1 : 0;
     i32 radius = compact ? 24 : 30;
-    i32 icon_size = compact ? 34 : 42;
+    i32 icon_size = compact ? 24 : 30;
     i32 icon_pad = (bar.slot_size - icon_size) / 2;
     i32 child_radius = dock_child_radius(bar.slot_size, bar.h, radius);
 

@@ -809,8 +809,7 @@ static void draw_dock_glass_capsule(i32 x, i32 y, i32 width, i32 height, i32 rad
 }
 
 static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
-    i32 radius = (child_size * dock_radius) / dock_height;
-    return radius > child_size / 3 ? child_size / 3 : radius;
+    return (child_size * dock_radius) / dock_height;
 }
 
 static void draw_store_symbol(i32 x, i32 y, i32 size) {

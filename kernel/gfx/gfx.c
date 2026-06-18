@@ -472,6 +472,43 @@ void gfx_blur_round_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
     }
 }
 
+void gfx_refract_round_rect_edges(i32 x, i32 y, i32 width, i32 height, i32 radius, i32 strength) {
+    if (!gfx_ready || width <= 0 || height <= 0 || strength <= 0) {
+        return;
+    }
+
+    for (i32 py = y; py < y + height; py++) {
+        for (i32 px = x; px < x + width; px++) {
+            u8 outer = round_rect_coverage(px, py, x, y, width, height, radius);
+            if (!outer) {
+                continue;
+            }
+
+            u8 inner = round_rect_coverage(px, py, x + 5, y + 5, width - 10, height - 10, radius - 5);
+            if (inner > 0) {
+                continue;
+            }
+
+            i32 dx = 0;
+            i32 dy = 0;
+            if (px < x + radius) {
+                dx = strength;
+            } else if (px >= x + width - radius) {
+                dx = -strength;
+            }
+            if (py < y + radius) {
+                dy = strength;
+            } else if (py >= y + height - radius) {
+                dy = -strength;
+            }
+
+            Color refracted = get_pixel(px + dx, py + dy);
+            u8 alpha = (u8)(((u32)(outer - inner) * 92) / 255);
+            put_pixel(px, py, blend(get_pixel(px, py), refracted, alpha));
+        }
+    }
+}
+
 void gfx_draw_round_rect_alpha(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color, u8 alpha) {
     if (!gfx_ready || width <= 0 || height <= 0 || alpha == 0) {
         return;

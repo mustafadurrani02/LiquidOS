@@ -153,7 +153,7 @@ static i32 dock_gap(void) {
 }
 
 static i32 dock_clock_w(void) {
-    return dock_scale_value(gfx_width() < 900 ? 116 : 132);
+    return dock_scale_value(gfx_width() < 900 ? 86 : 98);
 }
 
 static i32 taskbar_x(void) {
@@ -948,10 +948,11 @@ static void draw_dock_icon_asset(i32 x, i32 y, i32 tile_size, i32 radius, i32 im
 }
 
 static void draw_dock_clock(const TaskbarLayout *bar) {
-    i32 text_x = bar->clock_x + dock_scale_value(6);
-    i32 text_y = bar->clock_y + dock_scale_value(9);
-    gfx_draw_text(text_x, text_y, clock_text, RGB(246, 250, 255), 2);
-    gfx_draw_text(text_x, text_y + dock_scale_value(34), date_text, RGB(182, 195, 214), 1);
+    i32 text_x = bar->clock_x + dock_scale_value(7);
+    i32 text_y = bar->clock_y + (bar->clock_h - dock_scale_value(34)) / 2;
+    gfx_draw_text(text_x, text_y, clock_text, RGB(248, 251, 255), 1);
+    gfx_draw_text(text_x + 1, text_y, clock_text, RGB(248, 251, 255), 1);
+    gfx_draw_text(text_x, text_y + dock_scale_value(19), date_text, RGB(182, 195, 214), 1);
 }
 
 static void draw_dock_divider(const TaskbarLayout *bar) {
@@ -967,10 +968,21 @@ static void draw_dock_resize_grip(const TaskbarLayout *bar) {
     i32 grip_y;
     i32 grip_size;
     dock_grip_rect(bar, &grip_x, &grip_y, &grip_size);
-    gfx_fill_round_rect_alpha(grip_x, grip_y, grip_size, grip_size, grip_size / 2, RGB(214, 222, 235), 92);
-    gfx_draw_round_rect_alpha(grip_x, grip_y, grip_size, grip_size, grip_size / 2, RGB(248, 252, 255), 90);
-    gfx_draw_line(grip_x + grip_size / 3, grip_y + grip_size - 4, grip_x + grip_size - 4, grip_y + grip_size / 3, RGB(246, 250, 255));
-    gfx_draw_line(grip_x + grip_size / 2, grip_y + grip_size - 4, grip_x + grip_size - 4, grip_y + grip_size / 2, RGB(168, 180, 204));
+    i32 thickness = dock_scale_value(6);
+    i32 curve = grip_size - thickness;
+    Color handle = RGB(178, 184, 194);
+    Color rim = RGB(238, 242, 248);
+    gfx_fill_circle_alpha(grip_x + curve, grip_y + curve, curve, RGB(58, 62, 72), 70);
+    gfx_fill_round_rect_alpha(grip_x + grip_size - thickness, grip_y + thickness / 2,
+                              thickness, grip_size - thickness / 2, thickness / 2, handle, 210);
+    gfx_fill_round_rect_alpha(grip_x + thickness / 2, grip_y + grip_size - thickness,
+                              grip_size - thickness / 2, thickness, thickness / 2, handle, 210);
+    gfx_fill_circle_alpha(grip_x + grip_size - thickness, grip_y + grip_size - thickness,
+                          thickness, handle, 230);
+    gfx_draw_line(grip_x + grip_size - thickness / 2, grip_y + thickness,
+                  grip_x + grip_size - thickness / 2, grip_y + grip_size - thickness, rim);
+    gfx_draw_line(grip_x + thickness, grip_y + grip_size - thickness / 2,
+                  grip_x + grip_size - thickness, grip_y + grip_size - thickness / 2, rim);
 }
 
 static void draw_window_frame(const Window *window, bool focused) {

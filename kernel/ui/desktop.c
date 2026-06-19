@@ -64,11 +64,29 @@ typedef struct DesktopTheme {
     Color text;
 } DesktopTheme;
 
+typedef struct DockApp {
+    WindowKind window;
+    const char *message;
+    const u32 *pixels;
+    u32 icon_width;
+    u32 icon_height;
+    Color tile_top;
+    Color tile_bottom;
+    bool small_artwork;
+} DockApp;
+
 static const DesktopTheme themes[] = {
     { "Liquid Gold", RGB(255, 208, 96), RGB(24, 18, 34), RGB(244, 184, 64), RGB(248, 245, 235), RGB(31, 34, 42) },
     { "Aurora Blue", RGB(70, 198, 255), RGB(13, 25, 59), RGB(104, 207, 255), RGB(236, 246, 255), RGB(24, 36, 56) },
     { "Glass Mint", RGB(126, 244, 194), RGB(14, 44, 50), RGB(87, 220, 170), RGB(239, 252, 248), RGB(23, 50, 47) },
     { "Night Violet", RGB(180, 116, 255), RGB(20, 16, 42), RGB(190, 136, 255), RGB(245, 240, 255), RGB(38, 28, 60) },
+};
+
+static const DockApp dock_apps[] = {
+    { WINDOW_BROWSER, "BROWSER", app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT, RGB(70, 52, 20), RGB(2, 2, 8), true },
+    { WINDOW_FILES, "FILES", app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT, RGB(238, 145, 255), RGB(116, 62, 218), true },
+    { WINDOW_TERMINAL, "TERMINAL", app_icon_terminal_argb, APP_ICON_TERMINAL_WIDTH, APP_ICON_TERMINAL_HEIGHT, RGB(38, 42, 75), RGB(8, 9, 22), false },
+    { WINDOW_SETTINGS, "SETTINGS", app_icon_settings_argb, APP_ICON_SETTINGS_WIDTH, APP_ICON_SETTINGS_HEIGHT, RGB(104, 130, 164), RGB(54, 61, 78), false },
 };
 
 static Window windows[WINDOW_COUNT];
@@ -107,6 +125,19 @@ static size_t selected_store_app = 0;
 
 static void append_text(char *dest, size_t dest_size, const char *src);
 static i32 taskbar_w(void);
+static i32 taskbar_h(void);
+
+static i32 dock_app_count(void) {
+    return (i32)(sizeof(dock_apps) / sizeof(dock_apps[0]));
+}
+
+static i32 dock_tile_size(void) {
+    return gfx_width() < 900 ? 52 : 59;
+}
+
+static i32 dock_gap(void) {
+    return (taskbar_h() - dock_tile_size()) / 2;
+}
 
 static i32 taskbar_x(void) {
     i32 screen_w = (i32)gfx_width();
@@ -120,11 +151,10 @@ static i32 taskbar_y(void) {
 
 static i32 taskbar_w(void) {
     i32 screen_w = (i32)gfx_width();
-    i32 compact = screen_w < 900 ? 1 : 0;
-    i32 slot_w = compact ? 62 : 70;
-    i32 slot_gap = compact ? 7 : 8;
-    i32 side_pad = compact ? 22 : 28;
-    i32 width = side_pad * 2 + slot_w * 4 + slot_gap * 3;
+    i32 count = dock_app_count();
+    i32 tile_size = dock_tile_size();
+    i32 gap = dock_gap();
+    i32 width = gap * (count + 1) + tile_size * count;
     i32 max_width = screen_w - 32;
     return width > max_width ? max_width : width;
 }
@@ -134,17 +164,17 @@ static i32 taskbar_h(void) {
 }
 
 static void taskbar_layout(TaskbarLayout *layout) {
-    i32 compact = gfx_width() < 900 ? 1 : 0;
+    i32 gap = dock_gap();
 
     layout->x = taskbar_x();
     layout->y = taskbar_y();
     layout->w = taskbar_w();
     layout->h = taskbar_h();
 
-    layout->slot_w = compact ? 62 : 70;
-    layout->slot_h = compact ? 50 : 56;
-    layout->slot_step = layout->slot_w + (compact ? 7 : 8);
-    layout->slots_available = 4;
+    layout->slot_w = dock_tile_size();
+    layout->slot_h = dock_tile_size();
+    layout->slot_step = layout->slot_w + gap;
+    layout->slots_available = dock_app_count();
     layout->search_w = 0;
     layout->search_h = 0;
     layout->search_y = 0;
@@ -153,7 +183,7 @@ static void taskbar_layout(TaskbarLayout *layout) {
     layout->wifi_x = 0;
     layout->logo_x = 0;
     layout->slot_y = layout->y + (layout->h - layout->slot_h) / 2;
-    layout->slot_x = layout->x + (layout->w - ((layout->slots_available - 1) * layout->slot_step + layout->slot_w)) / 2;
+    layout->slot_x = layout->x + gap;
 }
 
 static bool point_in_rect(i32 px, i32 py, i32 x, i32 y, i32 width, i32 height) {
@@ -375,18 +405,12 @@ static void handle_taskbar_click(void) {
     TaskbarLayout bar;
     taskbar_layout(&bar);
 
-    if (point_in_rect(mouse_x, mouse_y, bar.slot_x, bar.slot_y, bar.slot_w, bar.slot_h)) {
-        open_window(WINDOW_BROWSER);
-        set_taskbar_message("BROWSER");
-    } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step, bar.slot_y, bar.slot_w, bar.slot_h)) {
-        open_window(WINDOW_FILES);
-        set_taskbar_message("FILES");
-    } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step * 2, bar.slot_y, bar.slot_w, bar.slot_h)) {
-        open_window(WINDOW_TERMINAL);
-        set_taskbar_message("TERMINAL");
-    } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step * 3, bar.slot_y, bar.slot_w, bar.slot_h)) {
-        open_window(WINDOW_SETTINGS);
-        set_taskbar_message("SETTINGS");
+    for (i32 i = 0; i < bar.slots_available; i++) {
+        if (point_in_rect(mouse_x, mouse_y, bar.slot_x + i * bar.slot_step, bar.slot_y, bar.slot_w, bar.slot_h)) {
+            open_window(dock_apps[i].window);
+            set_taskbar_message(dock_apps[i].message);
+            return;
+        }
     }
 }
 
@@ -1246,35 +1270,20 @@ static void draw_taskbar(void) {
     taskbar_layout(&bar);
     i32 compact = gfx_width() < 900 ? 1 : 0;
     i32 radius = compact ? 27 : 32;
-    i32 tile_size = compact ? 52 : 59;
-    i32 tile_free = bar.w - tile_size * 4;
-    i32 tile_y = bar.slot_y + (bar.slot_h - tile_size) / 2;
+    i32 tile_size = dock_tile_size();
     i32 child_radius = dock_child_radius(compact ? 48 : 54, bar.h, radius);
     i32 large_icon = tile_size - (compact ? 5 : 6);
     i32 small_icon = tile_size - (compact ? 9 : 10);
-    i32 tile_x0 = bar.x + (tile_free + 2) / 5;
-    i32 tile_x1 = bar.x + ((tile_free * 2 + 2) / 5) + tile_size;
-    i32 tile_x2 = bar.x + ((tile_free * 3 + 2) / 5) + tile_size * 2;
-    i32 tile_x3 = bar.x + ((tile_free * 4 + 2) / 5) + tile_size * 3;
 
     draw_dock_glass_capsule(bar.x, bar.y, bar.w, bar.h, radius);
 
-    draw_dock_icon_asset(tile_x0, tile_y,
-                         tile_size, child_radius, small_icon,
-                         app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT,
-                         RGB(70, 52, 20), RGB(2, 2, 8));
-    draw_dock_icon_asset(tile_x1, tile_y,
-                         tile_size, child_radius, small_icon,
-                         app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT,
-                         RGB(238, 145, 255), RGB(116, 62, 218));
-    draw_dock_icon_asset(tile_x2, tile_y,
-                         tile_size, child_radius, large_icon,
-                         app_icon_terminal_argb, APP_ICON_TERMINAL_WIDTH, APP_ICON_TERMINAL_HEIGHT,
-                         RGB(38, 42, 75), RGB(8, 9, 22));
-    draw_dock_icon_asset(tile_x3, tile_y,
-                         tile_size, child_radius, large_icon,
-                         app_icon_settings_argb, APP_ICON_SETTINGS_WIDTH, APP_ICON_SETTINGS_HEIGHT,
-                         RGB(104, 130, 164), RGB(54, 61, 78));
+    for (i32 i = 0; i < bar.slots_available; i++) {
+        const DockApp *app = &dock_apps[i];
+        draw_dock_icon_asset(bar.slot_x + i * bar.slot_step, bar.slot_y,
+                             tile_size, child_radius, app->small_artwork ? small_icon : large_icon,
+                             app->pixels, app->icon_width, app->icon_height,
+                             app->tile_top, app->tile_bottom);
+    }
 }
 
 void ui_init(const BootInfo *boot) {

@@ -9,6 +9,7 @@
 #include <liquidos/power.h>
 #include <liquidos/terminal.h>
 #include <liquidos/ui.h>
+#include "../gfx/app_icons.h"
 #include "../gfx/background_image.h"
 
 typedef enum WindowKind {
@@ -809,111 +810,16 @@ static void draw_dock_glass_capsule(i32 x, i32 y, i32 width, i32 height, i32 rad
     gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 74);
 }
 
-static u8 color_channel_lerp(u8 a, u8 b, i32 t) {
-    return (u8)((a * (255 - t) + b * t) / 255);
-}
-
-static Color color_lerp(Color a, Color b, i32 t) {
-    return RGB(color_channel_lerp((u8)(a >> 16), (u8)(b >> 16), t),
-               color_channel_lerp((u8)(a >> 8), (u8)(b >> 8), t),
-               color_channel_lerp((u8)a, (u8)b, t));
-}
-
-static i32 int_sqrt(i32 value) {
-    i32 root = 0;
-    while ((root + 1) * (root + 1) <= value) {
-        root++;
-    }
-    return root;
-}
-
-static i32 rounded_gradient_inset(i32 row, i32 height, i32 radius) {
-    if (radius <= 0) {
-        return 0;
-    }
-
-    i32 dy = 0;
-    if (row < radius) {
-        dy = radius - row - 1;
-    } else if (row >= height - radius) {
-        dy = row - (height - radius);
-    } else {
-        return 0;
-    }
-
-    i32 span = radius * radius - dy * dy;
-    i32 inset = radius - int_sqrt(span > 0 ? span : 0);
-    return inset < 0 ? 0 : inset;
-}
-
-static void draw_app_tile(i32 x, i32 y, i32 size, i32 radius, Color top, Color bottom, Color border) {
-    for (i32 row = 0; row < size; row++) {
-        i32 t = size > 1 ? (row * 255) / (size - 1) : 0;
-        i32 inset = rounded_gradient_inset(row, size, radius);
-        gfx_fill_rect(x + inset, y + row, size - inset * 2, 1, color_lerp(top, bottom, t));
-    }
-    gfx_draw_round_rect_alpha(x, y, size, size, radius, border, 58);
-}
-
 static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
     return (child_size * dock_radius) / dock_height;
 }
 
-static void draw_browser_icon(i32 x, i32 y, i32 size) {
-    i32 inset = size / 8;
-    i32 s = size - inset * 2;
-    i32 ax = x + inset;
-    i32 ay = y + inset;
-    i32 cx = ax + s / 2;
-    i32 cy = ay + s / 2;
-    gfx_fill_circle_alpha(cx, cy, s / 2 - 1, RGB(18, 22, 30), 255);
-    gfx_fill_circle_alpha(cx - s / 7, cy - s / 6, s / 3, RGB(78, 88, 104), 92);
-    gfx_fill_circle_alpha(cx + s / 9, cy + s / 4, s / 3, RGB(246, 176, 54), 128);
-    gfx_draw_line(ax, cy + s / 5, ax + s, cy - s / 8, RGB(255, 210, 118));
-    gfx_draw_line(ax + 1, cy + s / 5 + 1, ax + s - 1, cy - s / 8 + 1, RGB(173, 109, 34));
-    gfx_fill_circle_alpha(cx - s / 5, cy - s / 5, s / 8, RGB(255, 238, 190), 92);
-}
-
-static void draw_files_icon(i32 x, i32 y, i32 size) {
-    i32 inset = size / 9;
-    i32 s = size - inset * 2;
-    i32 ax = x + inset;
-    i32 ay = y + inset;
-    i32 radius = s / 5;
-    gfx_fill_round_rect_alpha(ax + s / 8, ay + s / 3, s - s / 4, s / 2, radius, RGB(176, 94, 245), 255);
-    gfx_fill_round_rect_alpha(ax + s / 8, ay + s / 4, s / 3, s / 5, radius / 2, RGB(222, 158, 255), 255);
-    gfx_fill_round_rect_alpha(ax + s / 8, ay + s / 2, s - s / 4, s / 3, radius, RGB(132, 70, 222), 96);
-    gfx_draw_round_rect_alpha(ax + s / 8, ay + s / 3, s - s / 4, s / 2, radius, RGB(255, 248, 255), 84);
-}
-
-static void draw_terminal_icon(i32 x, i32 y, i32 size) {
-    Color symbol = RGB(248, 250, 252);
-    i32 left = x + size / 4;
-    i32 mid_y = y + size / 2;
-    i32 arm = size / 4;
-    i32 stroke = size / 9;
-    for (i32 i = 0; i < stroke; i++) {
-        gfx_draw_line(left, mid_y - arm + i, left + arm, mid_y + i, symbol);
-        gfx_draw_line(left, mid_y + arm - i, left + arm, mid_y - i, symbol);
-    }
-    gfx_fill_round_rect_alpha(x + size / 2, y + size * 2 / 3, size / 3, stroke, stroke / 2, symbol, 245);
-}
-
-static void draw_settings_icon(i32 x, i32 y, i32 size) {
-    i32 cx = x + size / 2;
-    i32 cy = y + size / 2;
-    i32 outer = size / 3;
-    i32 inner = size / 8;
-    Color gear = RGB(248, 250, 252);
-    gfx_fill_circle_alpha(cx, cy, outer, gear, 245);
-    gfx_fill_circle_alpha(cx, cy, outer - size / 10, RGB(118, 124, 135), 255);
-    gfx_fill_circle_alpha(cx, cy, inner, gear, 245);
-    gfx_fill_circle_alpha(cx, cy, inner - size / 18, RGB(118, 124, 135), 255);
-    for (i32 i = 0; i < 3; i++) {
-        i32 off = i * size / 7;
-        gfx_fill_round_rect_alpha(cx - size / 16, y + size / 5 + off, size / 8, size / 8, size / 20, gear, 245);
-        gfx_fill_round_rect_alpha(x + size / 5 + off, cy - size / 16, size / 8, size / 8, size / 20, gear, 245);
-    }
+static void draw_dock_icon_asset(i32 x, i32 y, i32 size, i32 radius, const u32 *pixels, u32 src_w, u32 src_h) {
+    gfx_blur_round_rect(x, y, size, size, radius);
+    gfx_refract_round_rect_edges(x, y, size, size, radius, 1);
+    gfx_draw_argb8888_image_scaled(x, y, size, size, pixels, src_w, src_h);
+    gfx_fill_round_rect_plain_alpha(x + 2, y + 2, size - 4, size - 4, radius - 2, RGB(255, 255, 255), 10);
+    gfx_draw_round_rect_alpha(x, y, size, size, radius, RGB(247, 252, 255), 72);
 }
 
 static void draw_window_frame(const Window *window, bool focused) {
@@ -1291,35 +1197,20 @@ static void draw_taskbar(void) {
     taskbar_layout(&bar);
     i32 compact = gfx_width() < 900 ? 1 : 0;
     i32 radius = compact ? 27 : 32;
-    i32 icon_size = compact ? 32 : 38;
-    i32 tile_size = bar.slot_h;
+    i32 tile_size = compact ? 48 : 54;
     i32 tile_offset_x = (bar.slot_w - tile_size) / 2;
-    i32 icon_pad = (tile_size - icon_size) / 2;
     i32 child_radius = dock_child_radius(tile_size, bar.h, radius);
 
     draw_dock_glass_capsule(bar.x, bar.y, bar.w, bar.h, radius);
 
-    for (i32 i = 0; i < bar.slots_available; i++) {
-        i32 tile_x = bar.slot_x + i * bar.slot_step + tile_offset_x;
-        if (i == 0) {
-            draw_app_tile(tile_x, bar.slot_y, tile_size, child_radius,
-                          RGB(36, 39, 46), RGB(2, 3, 7), RGB(255, 214, 128));
-        } else if (i == 1) {
-            draw_app_tile(tile_x, bar.slot_y, tile_size, child_radius,
-                          RGB(252, 249, 255), RGB(225, 219, 245), RGB(255, 255, 255));
-        } else if (i == 2) {
-            draw_app_tile(tile_x, bar.slot_y, tile_size, child_radius,
-                          RGB(24, 26, 31), RGB(0, 0, 0), RGB(238, 242, 248));
-        } else {
-            draw_app_tile(tile_x, bar.slot_y, tile_size, child_radius,
-                          RGB(148, 153, 163), RGB(90, 96, 108), RGB(255, 255, 255));
-        }
-    }
-
-    draw_browser_icon(bar.slot_x + tile_offset_x + icon_pad, bar.slot_y + icon_pad, icon_size);
-    draw_files_icon(bar.slot_x + bar.slot_step + tile_offset_x + icon_pad, bar.slot_y + icon_pad, icon_size);
-    draw_terminal_icon(bar.slot_x + bar.slot_step * 2 + tile_offset_x + icon_pad, bar.slot_y + icon_pad, icon_size);
-    draw_settings_icon(bar.slot_x + bar.slot_step * 3 + tile_offset_x + icon_pad, bar.slot_y + icon_pad, icon_size);
+    draw_dock_icon_asset(bar.slot_x + tile_offset_x, bar.slot_y + (bar.slot_h - tile_size) / 2,
+                         tile_size, child_radius, app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT);
+    draw_dock_icon_asset(bar.slot_x + bar.slot_step + tile_offset_x, bar.slot_y + (bar.slot_h - tile_size) / 2,
+                         tile_size, child_radius, app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT);
+    draw_dock_icon_asset(bar.slot_x + bar.slot_step * 2 + tile_offset_x, bar.slot_y + (bar.slot_h - tile_size) / 2,
+                         tile_size, child_radius, app_icon_terminal_argb, APP_ICON_TERMINAL_WIDTH, APP_ICON_TERMINAL_HEIGHT);
+    draw_dock_icon_asset(bar.slot_x + bar.slot_step * 3 + tile_offset_x, bar.slot_y + (bar.slot_h - tile_size) / 2,
+                         tile_size, child_radius, app_icon_settings_argb, APP_ICON_SETTINGS_WIDTH, APP_ICON_SETTINGS_HEIGHT);
 }
 
 void ui_init(const BootInfo *boot) {

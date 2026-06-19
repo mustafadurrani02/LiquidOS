@@ -381,8 +381,8 @@ static void handle_taskbar_click(void) {
         open_window(WINDOW_FILES);
         set_taskbar_message("FILES");
     } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step * 2, bar.slot_y, bar.slot_w, bar.slot_h)) {
-        open_window(WINDOW_STORE);
-        set_taskbar_message("STORE");
+        open_window(WINDOW_TERMINAL);
+        set_taskbar_message("TERMINAL");
     } else if (point_in_rect(mouse_x, mouse_y, bar.slot_x + bar.slot_step * 3, bar.slot_y, bar.slot_w, bar.slot_h)) {
         open_window(WINDOW_SETTINGS);
         set_taskbar_message("SETTINGS");
@@ -809,14 +809,50 @@ static void draw_dock_glass_capsule(i32 x, i32 y, i32 width, i32 height, i32 rad
     gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 74);
 }
 
-static void draw_colored_app_box(i32 x, i32 y, i32 width, i32 height, i32 radius, Color top, Color bottom, Color accent) {
-    gfx_blur_round_rect(x, y, width, height, radius);
-    gfx_refract_round_rect_edges(x, y, width, height, radius, 2);
-    gfx_fill_round_rect_alpha(x, y, width, height, radius, bottom, 220);
-    gfx_fill_round_rect_alpha(x, y, width, height / 2 + 3, radius, top, 190);
-    gfx_fill_round_rect_alpha(x + 3, y + 3, width - 6, height / 3, radius - 3, RGB(255, 255, 255), 24);
-    gfx_fill_circle_alpha(x + width - width / 4, y + height / 4, height / 3, accent, 44);
-    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 62);
+static u8 color_channel_lerp(u8 a, u8 b, i32 t) {
+    return (u8)((a * (255 - t) + b * t) / 255);
+}
+
+static Color color_lerp(Color a, Color b, i32 t) {
+    return RGB(color_channel_lerp((u8)(a >> 16), (u8)(b >> 16), t),
+               color_channel_lerp((u8)(a >> 8), (u8)(b >> 8), t),
+               color_channel_lerp((u8)a, (u8)b, t));
+}
+
+static i32 int_sqrt(i32 value) {
+    i32 root = 0;
+    while ((root + 1) * (root + 1) <= value) {
+        root++;
+    }
+    return root;
+}
+
+static i32 rounded_gradient_inset(i32 row, i32 height, i32 radius) {
+    if (radius <= 0) {
+        return 0;
+    }
+
+    i32 dy = 0;
+    if (row < radius) {
+        dy = radius - row - 1;
+    } else if (row >= height - radius) {
+        dy = row - (height - radius);
+    } else {
+        return 0;
+    }
+
+    i32 span = radius * radius - dy * dy;
+    i32 inset = radius - int_sqrt(span > 0 ? span : 0);
+    return inset < 0 ? 0 : inset;
+}
+
+static void draw_app_tile(i32 x, i32 y, i32 size, i32 radius, Color top, Color bottom, Color border) {
+    for (i32 row = 0; row < size; row++) {
+        i32 t = size > 1 ? (row * 255) / (size - 1) : 0;
+        i32 inset = rounded_gradient_inset(row, size, radius);
+        gfx_fill_rect(x + inset, y + row, size - inset * 2, 1, color_lerp(top, bottom, t));
+    }
+    gfx_draw_round_rect_alpha(x, y, size, size, radius, border, 58);
 }
 
 static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
@@ -830,12 +866,12 @@ static void draw_browser_icon(i32 x, i32 y, i32 size) {
     i32 ay = y + inset;
     i32 cx = ax + s / 2;
     i32 cy = ay + s / 2;
-    gfx_fill_circle_alpha(cx, cy, s / 2 - 2, RGB(70, 128, 255), 235);
-    gfx_fill_circle_alpha(cx - s / 7, cy - s / 7, s / 3, RGB(166, 116, 255), 170);
-    gfx_fill_circle_alpha(cx + s / 6, cy + s / 8, s / 3, RGB(67, 215, 255), 115);
-    gfx_draw_line(ax + 2, cy + s / 5, ax + s - 2, cy - s / 6, RGB(236, 244, 255));
-    gfx_draw_line(ax + 3, cy + s / 5 + 1, ax + s - 3, cy - s / 6 + 1, RGB(126, 181, 255));
-    gfx_fill_circle_alpha(cx - s / 7, cy - s / 8, s / 8, RGB(255, 255, 255), 105);
+    gfx_fill_circle_alpha(cx, cy, s / 2 - 1, RGB(18, 22, 30), 255);
+    gfx_fill_circle_alpha(cx - s / 7, cy - s / 6, s / 3, RGB(78, 88, 104), 92);
+    gfx_fill_circle_alpha(cx + s / 9, cy + s / 4, s / 3, RGB(246, 176, 54), 128);
+    gfx_draw_line(ax, cy + s / 5, ax + s, cy - s / 8, RGB(255, 210, 118));
+    gfx_draw_line(ax + 1, cy + s / 5 + 1, ax + s - 1, cy - s / 8 + 1, RGB(173, 109, 34));
+    gfx_fill_circle_alpha(cx - s / 5, cy - s / 5, s / 8, RGB(255, 238, 190), 92);
 }
 
 static void draw_files_icon(i32 x, i32 y, i32 size) {
@@ -844,38 +880,40 @@ static void draw_files_icon(i32 x, i32 y, i32 size) {
     i32 ax = x + inset;
     i32 ay = y + inset;
     i32 radius = s / 5;
-    gfx_fill_round_rect_alpha(ax + s / 9, ay + s / 4, s - s / 5, s / 2, radius, RGB(116, 68, 220), 238);
-    gfx_fill_round_rect_alpha(ax + s / 9, ay + s / 5, s / 3, s / 5, radius / 2, RGB(239, 160, 255), 238);
-    gfx_fill_round_rect_alpha(ax + s / 10, ay + s / 3, s - s / 5, s / 2, radius, RGB(224, 138, 255), 180);
-    gfx_fill_round_rect_alpha(ax + s / 10, ay + s / 2, s - s / 5, s / 4, radius, RGB(126, 78, 226), 95);
-    gfx_draw_round_rect_alpha(ax + s / 9, ay + s / 4, s - s / 5, s / 2, radius, RGB(255, 235, 255), 105);
+    gfx_fill_round_rect_alpha(ax + s / 8, ay + s / 3, s - s / 4, s / 2, radius, RGB(176, 94, 245), 255);
+    gfx_fill_round_rect_alpha(ax + s / 8, ay + s / 4, s / 3, s / 5, radius / 2, RGB(222, 158, 255), 255);
+    gfx_fill_round_rect_alpha(ax + s / 8, ay + s / 2, s - s / 4, s / 3, radius, RGB(132, 70, 222), 96);
+    gfx_draw_round_rect_alpha(ax + s / 8, ay + s / 3, s - s / 4, s / 2, radius, RGB(255, 248, 255), 84);
 }
 
-static void draw_trash_icon(i32 x, i32 y, i32 size) {
-    i32 inset = size / 8;
-    i32 s = size - inset * 2;
-    i32 ax = x + inset;
-    i32 ay = y + inset;
-    Color body = RGB(55, 66, 88);
-    Color edge = RGB(155, 178, 214);
-    i32 left = ax + s / 3;
-    i32 right = ax + s - s / 3;
-    i32 top = ay + s / 3;
-    i32 bottom = ay + s - s / 5;
-    gfx_fill_round_rect_alpha(left, top, right - left, bottom - top, s / 8, body, 230);
-    gfx_fill_round_rect_alpha(left + 2, top + 2, right - left - 4, (bottom - top) / 2, s / 9, RGB(82, 96, 128), 130);
-    gfx_draw_line(left - 3, top - 3, right + 3, top - 3, edge);
-    gfx_draw_line(left + 3, top - 7, right - 3, top - 7, RGB(106, 126, 164));
-    gfx_draw_line(left + 4, top + 4, left + 5, bottom - 4, RGB(130, 151, 190));
-    gfx_draw_line(right - 5, top + 4, right - 6, bottom - 4, RGB(35, 43, 62));
+static void draw_terminal_icon(i32 x, i32 y, i32 size) {
+    Color symbol = RGB(248, 250, 252);
+    i32 left = x + size / 4;
+    i32 mid_y = y + size / 2;
+    i32 arm = size / 4;
+    i32 stroke = size / 9;
+    for (i32 i = 0; i < stroke; i++) {
+        gfx_draw_line(left, mid_y - arm + i, left + arm, mid_y + i, symbol);
+        gfx_draw_line(left, mid_y + arm - i, left + arm, mid_y - i, symbol);
+    }
+    gfx_fill_round_rect_alpha(x + size / 2, y + size * 2 / 3, size / 3, stroke, stroke / 2, symbol, 245);
 }
 
-static void draw_add_icon(i32 x, i32 y, i32 size) {
+static void draw_settings_icon(i32 x, i32 y, i32 size) {
     i32 cx = x + size / 2;
     i32 cy = y + size / 2;
-    gfx_fill_circle_alpha(cx, cy, size / 3, RGB(80, 210, 255), 72);
-    gfx_fill_round_rect_alpha(cx - size / 13, y + size / 4, size / 6, size / 2, size / 13, RGB(250, 253, 255), 235);
-    gfx_fill_round_rect_alpha(x + size / 4, cy - size / 13, size / 2, size / 6, size / 13, RGB(250, 253, 255), 235);
+    i32 outer = size / 3;
+    i32 inner = size / 8;
+    Color gear = RGB(248, 250, 252);
+    gfx_fill_circle_alpha(cx, cy, outer, gear, 245);
+    gfx_fill_circle_alpha(cx, cy, outer - size / 10, RGB(118, 124, 135), 255);
+    gfx_fill_circle_alpha(cx, cy, inner, gear, 245);
+    gfx_fill_circle_alpha(cx, cy, inner - size / 18, RGB(118, 124, 135), 255);
+    for (i32 i = 0; i < 3; i++) {
+        i32 off = i * size / 7;
+        gfx_fill_round_rect_alpha(cx - size / 16, y + size / 5 + off, size / 8, size / 8, size / 20, gear, 245);
+        gfx_fill_round_rect_alpha(x + size / 5 + off, cy - size / 16, size / 8, size / 8, size / 20, gear, 245);
+    }
 }
 
 static void draw_window_frame(const Window *window, bool focused) {
@@ -1254,33 +1292,34 @@ static void draw_taskbar(void) {
     i32 compact = gfx_width() < 900 ? 1 : 0;
     i32 radius = compact ? 27 : 32;
     i32 icon_size = compact ? 32 : 38;
-    i32 icon_pad_x = (bar.slot_w - icon_size) / 2;
-    i32 icon_pad_y = (bar.slot_h - icon_size) / 2;
-    i32 child_radius = dock_child_radius(bar.slot_h, bar.h, radius);
+    i32 tile_size = bar.slot_h;
+    i32 tile_offset_x = (bar.slot_w - tile_size) / 2;
+    i32 icon_pad = (tile_size - icon_size) / 2;
+    i32 child_radius = dock_child_radius(tile_size, bar.h, radius);
 
     draw_dock_glass_capsule(bar.x, bar.y, bar.w, bar.h, radius);
 
     for (i32 i = 0; i < bar.slots_available; i++) {
-        i32 slot_x = bar.slot_x + i * bar.slot_step;
+        i32 tile_x = bar.slot_x + i * bar.slot_step + tile_offset_x;
         if (i == 0) {
-            draw_colored_app_box(slot_x, bar.slot_y, bar.slot_w, bar.slot_h, child_radius,
-                                 RGB(78, 168, 255), RGB(86, 48, 190), RGB(56, 225, 255));
+            draw_app_tile(tile_x, bar.slot_y, tile_size, child_radius,
+                          RGB(36, 39, 46), RGB(2, 3, 7), RGB(255, 214, 128));
         } else if (i == 1) {
-            draw_colored_app_box(slot_x, bar.slot_y, bar.slot_w, bar.slot_h, child_radius,
-                                 RGB(228, 124, 255), RGB(128, 66, 214), RGB(255, 174, 228));
+            draw_app_tile(tile_x, bar.slot_y, tile_size, child_radius,
+                          RGB(252, 249, 255), RGB(225, 219, 245), RGB(255, 255, 255));
         } else if (i == 2) {
-            draw_colored_app_box(slot_x, bar.slot_y, bar.slot_w, bar.slot_h, child_radius,
-                                 RGB(82, 98, 128), RGB(28, 36, 56), RGB(114, 152, 205));
+            draw_app_tile(tile_x, bar.slot_y, tile_size, child_radius,
+                          RGB(24, 26, 31), RGB(0, 0, 0), RGB(238, 242, 248));
         } else {
-            draw_colored_app_box(slot_x, bar.slot_y, bar.slot_w, bar.slot_h, child_radius,
-                                 RGB(78, 174, 255), RGB(28, 102, 220), RGB(48, 224, 255));
+            draw_app_tile(tile_x, bar.slot_y, tile_size, child_radius,
+                          RGB(148, 153, 163), RGB(90, 96, 108), RGB(255, 255, 255));
         }
     }
 
-    draw_browser_icon(bar.slot_x + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);
-    draw_files_icon(bar.slot_x + bar.slot_step + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);
-    draw_trash_icon(bar.slot_x + bar.slot_step * 2 + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);
-    draw_add_icon(bar.slot_x + bar.slot_step * 3 + icon_pad_x, bar.slot_y + icon_pad_y, icon_size);
+    draw_browser_icon(bar.slot_x + tile_offset_x + icon_pad, bar.slot_y + icon_pad, icon_size);
+    draw_files_icon(bar.slot_x + bar.slot_step + tile_offset_x + icon_pad, bar.slot_y + icon_pad, icon_size);
+    draw_terminal_icon(bar.slot_x + bar.slot_step * 2 + tile_offset_x + icon_pad, bar.slot_y + icon_pad, icon_size);
+    draw_settings_icon(bar.slot_x + bar.slot_step * 3 + tile_offset_x + icon_pad, bar.slot_y + icon_pad, icon_size);
 }
 
 void ui_init(const BootInfo *boot) {

@@ -814,12 +814,61 @@ static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
     return (child_size * dock_radius) / dock_height;
 }
 
-static void draw_dock_icon_asset(i32 x, i32 y, i32 size, i32 radius, const u32 *pixels, u32 src_w, u32 src_h) {
-    gfx_blur_round_rect(x, y, size, size, radius);
-    gfx_refract_round_rect_edges(x, y, size, size, radius, 1);
-    gfx_draw_argb8888_image_scaled(x, y, size, size, pixels, src_w, src_h);
-    gfx_fill_round_rect_plain_alpha(x + 2, y + 2, size - 4, size - 4, radius - 2, RGB(255, 255, 255), 10);
-    gfx_draw_round_rect_alpha(x, y, size, size, radius, RGB(247, 252, 255), 72);
+static u8 color_channel_lerp(u8 a, u8 b, i32 t) {
+    return (u8)((a * (255 - t) + b * t) / 255);
+}
+
+static Color color_lerp(Color a, Color b, i32 t) {
+    return RGB(color_channel_lerp((u8)(a >> 16), (u8)(b >> 16), t),
+               color_channel_lerp((u8)(a >> 8), (u8)(b >> 8), t),
+               color_channel_lerp((u8)a, (u8)b, t));
+}
+
+static i32 int_sqrt(i32 value) {
+    i32 root = 0;
+    while ((root + 1) * (root + 1) <= value) {
+        root++;
+    }
+    return root;
+}
+
+static i32 rounded_gradient_inset(i32 row, i32 height, i32 radius) {
+    if (radius <= 0) {
+        return 0;
+    }
+
+    i32 dy = 0;
+    if (row < radius) {
+        dy = radius - row - 1;
+    } else if (row >= height - radius) {
+        dy = row - (height - radius);
+    } else {
+        return 0;
+    }
+
+    i32 span = radius * radius - dy * dy;
+    i32 inset = radius - int_sqrt(span > 0 ? span : 0);
+    return inset < 0 ? 0 : inset;
+}
+
+static void draw_flat_icon_tile(i32 x, i32 y, i32 size, i32 radius, Color top, Color bottom) {
+    for (i32 row = 0; row < size; row++) {
+        i32 t = size > 1 ? (row * 255) / (size - 1) : 0;
+        i32 inset = rounded_gradient_inset(row, size, radius);
+        gfx_fill_rect(x + inset, y + row, size - inset * 2, 1, color_lerp(top, bottom, t));
+    }
+    gfx_draw_round_rect_alpha(x, y, size, size, radius, RGB(247, 252, 255), 54);
+}
+
+static void draw_dock_icon_asset(i32 x, i32 y, i32 tile_size, i32 radius, i32 image_size,
+                                 const u32 *pixels, u32 src_w, u32 src_h, Color top, Color bottom) {
+    i32 image_x = x + (tile_size - image_size) / 2;
+    i32 image_y = y + (tile_size - image_size) / 2;
+    gfx_blur_round_rect(x, y, tile_size, tile_size, radius);
+    gfx_refract_round_rect_edges(x, y, tile_size, tile_size, radius, 1);
+    draw_flat_icon_tile(x, y, tile_size, radius, top, bottom);
+    gfx_draw_argb8888_image_scaled(image_x, image_y, image_size, image_size, pixels, src_w, src_h);
+    gfx_draw_round_rect_alpha(x, y, tile_size, tile_size, radius, RGB(247, 252, 255), 66);
 }
 
 static void draw_window_frame(const Window *window, bool focused) {
@@ -1200,17 +1249,27 @@ static void draw_taskbar(void) {
     i32 tile_size = compact ? 48 : 54;
     i32 tile_offset_x = (bar.slot_w - tile_size) / 2;
     i32 child_radius = dock_child_radius(tile_size, bar.h, radius);
+    i32 large_icon = tile_size - (compact ? 5 : 6);
+    i32 small_icon = tile_size - (compact ? 9 : 10);
 
     draw_dock_glass_capsule(bar.x, bar.y, bar.w, bar.h, radius);
 
     draw_dock_icon_asset(bar.slot_x + tile_offset_x, bar.slot_y + (bar.slot_h - tile_size) / 2,
-                         tile_size, child_radius, app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT);
+                         tile_size, child_radius, small_icon,
+                         app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT,
+                         RGB(70, 52, 20), RGB(2, 2, 8));
     draw_dock_icon_asset(bar.slot_x + bar.slot_step + tile_offset_x, bar.slot_y + (bar.slot_h - tile_size) / 2,
-                         tile_size, child_radius, app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT);
+                         tile_size, child_radius, small_icon,
+                         app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT,
+                         RGB(238, 145, 255), RGB(116, 62, 218));
     draw_dock_icon_asset(bar.slot_x + bar.slot_step * 2 + tile_offset_x, bar.slot_y + (bar.slot_h - tile_size) / 2,
-                         tile_size, child_radius, app_icon_terminal_argb, APP_ICON_TERMINAL_WIDTH, APP_ICON_TERMINAL_HEIGHT);
+                         tile_size, child_radius, large_icon,
+                         app_icon_terminal_argb, APP_ICON_TERMINAL_WIDTH, APP_ICON_TERMINAL_HEIGHT,
+                         RGB(38, 42, 75), RGB(8, 9, 22));
     draw_dock_icon_asset(bar.slot_x + bar.slot_step * 3 + tile_offset_x, bar.slot_y + (bar.slot_h - tile_size) / 2,
-                         tile_size, child_radius, app_icon_settings_argb, APP_ICON_SETTINGS_WIDTH, APP_ICON_SETTINGS_HEIGHT);
+                         tile_size, child_radius, large_icon,
+                         app_icon_settings_argb, APP_ICON_SETTINGS_WIDTH, APP_ICON_SETTINGS_HEIGHT,
+                         RGB(104, 130, 164), RGB(54, 61, 78));
 }
 
 void ui_init(const BootInfo *boot) {

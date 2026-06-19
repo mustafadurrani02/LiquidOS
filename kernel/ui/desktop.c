@@ -1246,27 +1246,32 @@ static void draw_taskbar(void) {
     taskbar_layout(&bar);
     i32 compact = gfx_width() < 900 ? 1 : 0;
     i32 radius = compact ? 27 : 32;
-    i32 tile_size = compact ? 48 : 54;
-    i32 tile_offset_x = (bar.slot_w - tile_size) / 2;
-    i32 child_radius = dock_child_radius(tile_size, bar.h, radius);
+    i32 tile_size = compact ? 52 : 59;
+    i32 tile_free = bar.w - tile_size * 4;
+    i32 tile_y = bar.slot_y + (bar.slot_h - tile_size) / 2;
+    i32 child_radius = dock_child_radius(compact ? 48 : 54, bar.h, radius);
     i32 large_icon = tile_size - (compact ? 5 : 6);
     i32 small_icon = tile_size - (compact ? 9 : 10);
+    i32 tile_x0 = bar.x + (tile_free + 2) / 5;
+    i32 tile_x1 = bar.x + ((tile_free * 2 + 2) / 5) + tile_size;
+    i32 tile_x2 = bar.x + ((tile_free * 3 + 2) / 5) + tile_size * 2;
+    i32 tile_x3 = bar.x + ((tile_free * 4 + 2) / 5) + tile_size * 3;
 
     draw_dock_glass_capsule(bar.x, bar.y, bar.w, bar.h, radius);
 
-    draw_dock_icon_asset(bar.slot_x + tile_offset_x, bar.slot_y + (bar.slot_h - tile_size) / 2,
+    draw_dock_icon_asset(tile_x0, tile_y,
                          tile_size, child_radius, small_icon,
                          app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT,
                          RGB(70, 52, 20), RGB(2, 2, 8));
-    draw_dock_icon_asset(bar.slot_x + bar.slot_step + tile_offset_x, bar.slot_y + (bar.slot_h - tile_size) / 2,
+    draw_dock_icon_asset(tile_x1, tile_y,
                          tile_size, child_radius, small_icon,
                          app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT,
                          RGB(238, 145, 255), RGB(116, 62, 218));
-    draw_dock_icon_asset(bar.slot_x + bar.slot_step * 2 + tile_offset_x, bar.slot_y + (bar.slot_h - tile_size) / 2,
+    draw_dock_icon_asset(tile_x2, tile_y,
                          tile_size, child_radius, large_icon,
                          app_icon_terminal_argb, APP_ICON_TERMINAL_WIDTH, APP_ICON_TERMINAL_HEIGHT,
                          RGB(38, 42, 75), RGB(8, 9, 22));
-    draw_dock_icon_asset(bar.slot_x + bar.slot_step * 3 + tile_offset_x, bar.slot_y + (bar.slot_h - tile_size) / 2,
+    draw_dock_icon_asset(tile_x3, tile_y,
                          tile_size, child_radius, large_icon,
                          app_icon_settings_argb, APP_ICON_SETTINGS_WIDTH, APP_ICON_SETTINGS_HEIGHT,
                          RGB(104, 130, 164), RGB(54, 61, 78));

@@ -107,7 +107,7 @@ static i32 drag_offset_x = 0;
 static i32 drag_offset_y = 0;
 static u64 last_clock_tick = 0;
 static char clock_text[6] = "00:00";
-static char date_text[9] = "00/00/00";
+static char date_text[11] = "00/00/0000";
 static char taskbar_message[32] = "SEARCH";
 static char app_status_text[64] = "Install an app, then run it from Store or Launch Apps.";
 static bool wifi_enabled = true;
@@ -144,7 +144,7 @@ static i32 dock_gap(void) {
 }
 
 static i32 dock_clock_w(void) {
-    return gfx_width() < 900 ? 72 : 84;
+    return gfx_width() < 900 ? 116 : 132;
 }
 
 static i32 taskbar_x(void) {
@@ -788,6 +788,7 @@ static void update_clock_text(void) {
     u8 day = cmos_read(0x07);
     u8 month = cmos_read(0x08);
     u8 year = cmos_read(0x09);
+    u16 full_year = 2000;
 
     if ((status_b & 0x04) == 0) {
         minute = bcd_to_binary(minute);
@@ -799,6 +800,7 @@ static void update_clock_text(void) {
 
     hour %= 24;
     minute %= 60;
+    full_year = (u16)(2000 + (year % 100));
 
     clock_text[0] = (char)('0' + hour / 10);
     clock_text[1] = (char)('0' + hour % 10);
@@ -815,9 +817,11 @@ static void update_clock_text(void) {
     date_text[3] = (char)('0' + (month % 100) / 10);
     date_text[4] = (char)('0' + month % 10);
     date_text[5] = '/';
-    date_text[6] = (char)('0' + (year % 100) / 10);
-    date_text[7] = (char)('0' + year % 10);
-    date_text[8] = 0;
+    date_text[6] = (char)('0' + (full_year / 1000) % 10);
+    date_text[7] = (char)('0' + (full_year / 100) % 10);
+    date_text[8] = (char)('0' + (full_year / 10) % 10);
+    date_text[9] = (char)('0' + full_year % 10);
+    date_text[10] = 0;
 }
 
 static void draw_glass_panel(i32 x, i32 y, i32 width, i32 height, i32 radius) {
@@ -909,9 +913,9 @@ static void draw_dock_icon_asset(i32 x, i32 y, i32 tile_size, i32 radius, i32 im
 
 static void draw_dock_clock(const TaskbarLayout *bar) {
     i32 text_x = bar->clock_x + 2;
-    i32 text_y = bar->clock_y + 2;
+    i32 text_y = bar->clock_y + (bar->clock_h - 48) / 2;
     gfx_draw_text(text_x, text_y, clock_text, RGB(246, 250, 255), 2);
-    gfx_draw_text(text_x + 1, text_y + 32, date_text, RGB(182, 195, 214), 1);
+    gfx_draw_text(text_x, text_y + 32, date_text, RGB(182, 195, 214), 1);
 }
 
 static void draw_window_frame(const Window *window, bool focused) {

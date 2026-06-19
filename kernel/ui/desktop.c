@@ -101,10 +101,15 @@ static i32 mouse_y = 240;
 static bool previous_left = false;
 static bool dragging = false;
 static bool resizing = false;
+static bool dock_resizing = false;
+static bool dock_grip_visible = false;
 static WindowKind dragged_window = WINDOW_TERMINAL;
 static WindowKind resized_window = WINDOW_TERMINAL;
 static i32 drag_offset_x = 0;
 static i32 drag_offset_y = 0;
+static i32 dock_resize_start_x = 0;
+static i32 dock_resize_start_scale = 100;
+static i32 dock_scale_percent = 100;
 static u64 last_clock_tick = 0;
 static char clock_text[6] = "00:00";
 static char date_text[11] = "00/00/0000";
@@ -135,16 +140,20 @@ static i32 dock_app_count(void) {
     return (i32)(sizeof(dock_apps) / sizeof(dock_apps[0]));
 }
 
+static i32 dock_scale_value(i32 value) {
+    return (value * dock_scale_percent + 50) / 100;
+}
+
 static i32 dock_tile_size(void) {
-    return gfx_width() < 900 ? 52 : 59;
+    return dock_scale_value(gfx_width() < 900 ? 52 : 59);
 }
 
 static i32 dock_gap(void) {
-    return (taskbar_h() - dock_tile_size()) / 2;
+    return dock_scale_value(gfx_width() < 900 ? 13 : 14);
 }
 
 static i32 dock_clock_w(void) {
-    return gfx_width() < 900 ? 116 : 132;
+    return dock_scale_value(gfx_width() < 900 ? 116 : 132);
 }
 
 static i32 taskbar_x(void) {
@@ -168,7 +177,14 @@ static i32 taskbar_w(void) {
 }
 
 static i32 taskbar_h(void) {
-    return gfx_width() < 900 ? 78 : 88;
+    return dock_tile_size() + dock_gap() * 2;
+}
+
+static void dock_grip_rect(const TaskbarLayout *bar, i32 *x, i32 *y, i32 *size) {
+    i32 grip = dock_scale_value(16);
+    *x = bar->x + bar->w - grip - dock_scale_value(5);
+    *y = bar->y + bar->h - grip - dock_scale_value(5);
+    *size = grip;
 }
 
 static void taskbar_layout(TaskbarLayout *layout) {
@@ -363,9 +379,16 @@ static void launch_store_app(size_t index) {
 static i32 taskbar_hover_zone_at(i32 px, i32 py) {
     TaskbarLayout bar;
     taskbar_layout(&bar);
+    i32 grip_x;
+    i32 grip_y;
+    i32 grip_size;
+    dock_grip_rect(&bar, &grip_x, &grip_y, &grip_size);
 
     if (!point_in_rect(px, py, bar.x, bar.y, bar.w, bar.h)) {
         return -1;
+    }
+    if (point_in_rect(px, py, grip_x, grip_y, grip_size, grip_size)) {
+        return 2;
     }
     for (i32 i = 0; i < bar.slots_available; i++) {
         if (point_in_rect(px, py, bar.slot_x + i * bar.slot_step, bar.slot_y, bar.slot_w, bar.slot_h)) {
@@ -416,6 +439,19 @@ static void toggle_window_size(Window *window) {
 static void handle_taskbar_click(void) {
     TaskbarLayout bar;
     taskbar_layout(&bar);
+    i32 grip_x;
+    i32 grip_y;
+    i32 grip_size;
+    dock_grip_rect(&bar, &grip_x, &grip_y, &grip_size);
+
+    dock_grip_visible = true;
+    if (point_in_rect(mouse_x, mouse_y, grip_x - 4, grip_y - 4, grip_size + 8, grip_size + 8)) {
+        dock_resizing = true;
+        dock_resize_start_x = mouse_x;
+        dock_resize_start_scale = dock_scale_percent;
+        mark_dirty_taskbar();
+        return;
+    }
 
     for (i32 i = 0; i < bar.slots_available; i++) {
         if (point_in_rect(mouse_x, mouse_y, bar.slot_x + i * bar.slot_step, bar.slot_y, bar.slot_w, bar.slot_h)) {
@@ -912,10 +948,29 @@ static void draw_dock_icon_asset(i32 x, i32 y, i32 tile_size, i32 radius, i32 im
 }
 
 static void draw_dock_clock(const TaskbarLayout *bar) {
-    i32 text_x = bar->clock_x + 2;
-    i32 text_y = bar->clock_y + (bar->clock_h - 48) / 2;
+    i32 text_x = bar->clock_x + dock_scale_value(6);
+    i32 text_y = bar->clock_y + dock_scale_value(9);
     gfx_draw_text(text_x, text_y, clock_text, RGB(246, 250, 255), 2);
-    gfx_draw_text(text_x, text_y + 32, date_text, RGB(182, 195, 214), 1);
+    gfx_draw_text(text_x, text_y + dock_scale_value(34), date_text, RGB(182, 195, 214), 1);
+}
+
+static void draw_dock_divider(const TaskbarLayout *bar) {
+    i32 x = bar->clock_x + bar->clock_w + dock_gap() / 2;
+    i32 y = bar->y + dock_gap();
+    i32 height = bar->h - dock_gap() * 2;
+    gfx_fill_rect(x, y, 1, height, RGB(226, 236, 255));
+    gfx_fill_rect(x + 1, y, 1, height, RGB(40, 46, 70));
+}
+
+static void draw_dock_resize_grip(const TaskbarLayout *bar) {
+    i32 grip_x;
+    i32 grip_y;
+    i32 grip_size;
+    dock_grip_rect(bar, &grip_x, &grip_y, &grip_size);
+    gfx_fill_round_rect_alpha(grip_x, grip_y, grip_size, grip_size, grip_size / 2, RGB(214, 222, 235), 92);
+    gfx_draw_round_rect_alpha(grip_x, grip_y, grip_size, grip_size, grip_size / 2, RGB(248, 252, 255), 90);
+    gfx_draw_line(grip_x + grip_size / 3, grip_y + grip_size - 4, grip_x + grip_size - 4, grip_y + grip_size / 3, RGB(246, 250, 255));
+    gfx_draw_line(grip_x + grip_size / 2, grip_y + grip_size - 4, grip_x + grip_size - 4, grip_y + grip_size / 2, RGB(168, 180, 204));
 }
 
 static void draw_window_frame(const Window *window, bool focused) {
@@ -1300,6 +1355,7 @@ static void draw_taskbar(void) {
 
     draw_dock_glass_capsule(bar.x, bar.y, bar.w, bar.h, radius);
     draw_dock_clock(&bar);
+    draw_dock_divider(&bar);
 
     for (i32 i = 0; i < bar.slots_available; i++) {
         const DockApp *app = &dock_apps[i];
@@ -1307,6 +1363,9 @@ static void draw_taskbar(void) {
                              tile_size, child_radius, app->small_artwork ? small_icon : large_icon,
                              app->pixels, app->icon_width, app->icon_height,
                              app->tile_top, app->tile_bottom);
+    }
+    if (dock_grip_visible || dock_resizing || hover_zone == 0 || hover_zone == 2) {
+        draw_dock_resize_grip(&bar);
     }
 }
 
@@ -1440,6 +1499,21 @@ void ui_handle_event(const InputEvent *event) {
         mark_dirty_rect(window->x, window->y, window->width, window->height);
     }
 
+    if (dock_resizing && left_now && mouse_moved) {
+        i32 next_scale = dock_resize_start_scale + (mouse_x - dock_resize_start_x) / 3;
+        if (next_scale < 82) {
+            next_scale = 82;
+        }
+        if (next_scale > 135) {
+            next_scale = 135;
+        }
+        if (next_scale != dock_scale_percent) {
+            mark_dirty_full();
+            dock_scale_percent = next_scale;
+            cursor_redraw_needed = true;
+        }
+    }
+
     if (left_now && !previous_left) {
         if (point_in_rect(mouse_x, mouse_y, taskbar_x(), taskbar_y(), taskbar_w(), taskbar_h())) {
             handle_taskbar_click();
@@ -1456,6 +1530,11 @@ void ui_handle_event(const InputEvent *event) {
     if (!left_now) {
         dragging = false;
         resizing = false;
+        dock_resizing = false;
+        if (dock_grip_visible) {
+            dock_grip_visible = false;
+            mark_dirty_taskbar();
+        }
     }
 
     previous_left = left_now;
@@ -1464,7 +1543,7 @@ void ui_handle_event(const InputEvent *event) {
 void ui_update(u64 tick_count) {
     if (tick_count - last_clock_tick >= 100) {
         char old_clock[6];
-        char old_date[9];
+        char old_date[11];
         strcpy(old_clock, clock_text);
         strcpy(old_date, date_text);
         update_clock_text();

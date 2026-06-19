@@ -49,6 +49,10 @@ typedef struct TaskbarLayout {
     i32 slot_h;
     i32 slot_step;
     i32 slots_available;
+    i32 clock_x;
+    i32 clock_y;
+    i32 clock_w;
+    i32 clock_h;
     i32 search_x;
     i32 search_y;
     i32 search_w;
@@ -139,6 +143,10 @@ static i32 dock_gap(void) {
     return (taskbar_h() - dock_tile_size()) / 2;
 }
 
+static i32 dock_clock_w(void) {
+    return gfx_width() < 900 ? 72 : 84;
+}
+
 static i32 taskbar_x(void) {
     i32 screen_w = (i32)gfx_width();
     i32 width = taskbar_w();
@@ -154,7 +162,7 @@ static i32 taskbar_w(void) {
     i32 count = dock_app_count();
     i32 tile_size = dock_tile_size();
     i32 gap = dock_gap();
-    i32 width = gap * (count + 1) + tile_size * count;
+    i32 width = gap * (count + 2) + dock_clock_w() + tile_size * count;
     i32 max_width = screen_w - 32;
     return width > max_width ? max_width : width;
 }
@@ -175,6 +183,10 @@ static void taskbar_layout(TaskbarLayout *layout) {
     layout->slot_h = dock_tile_size();
     layout->slot_step = layout->slot_w + gap;
     layout->slots_available = dock_app_count();
+    layout->clock_x = layout->x + gap;
+    layout->clock_y = layout->y + (layout->h - layout->slot_h) / 2;
+    layout->clock_w = dock_clock_w();
+    layout->clock_h = layout->slot_h;
     layout->search_w = 0;
     layout->search_h = 0;
     layout->search_y = 0;
@@ -183,7 +195,7 @@ static void taskbar_layout(TaskbarLayout *layout) {
     layout->wifi_x = 0;
     layout->logo_x = 0;
     layout->slot_y = layout->y + (layout->h - layout->slot_h) / 2;
-    layout->slot_x = layout->x + gap;
+    layout->slot_x = layout->clock_x + layout->clock_w + gap;
 }
 
 static bool point_in_rect(i32 px, i32 py, i32 x, i32 y, i32 width, i32 height) {
@@ -895,6 +907,13 @@ static void draw_dock_icon_asset(i32 x, i32 y, i32 tile_size, i32 radius, i32 im
     gfx_draw_round_rect_alpha(x, y, tile_size, tile_size, radius, RGB(247, 252, 255), 66);
 }
 
+static void draw_dock_clock(const TaskbarLayout *bar) {
+    i32 text_x = bar->clock_x + 2;
+    i32 text_y = bar->clock_y + 2;
+    gfx_draw_text(text_x, text_y, clock_text, RGB(246, 250, 255), 2);
+    gfx_draw_text(text_x + 1, text_y + 32, date_text, RGB(182, 195, 214), 1);
+}
+
 static void draw_window_frame(const Window *window, bool focused) {
     const DesktopTheme *theme = &themes[current_theme];
     Color shadow = RGB(6, 9, 13);
@@ -1276,6 +1295,7 @@ static void draw_taskbar(void) {
     i32 small_icon = tile_size - (compact ? 9 : 10);
 
     draw_dock_glass_capsule(bar.x, bar.y, bar.w, bar.h, radius);
+    draw_dock_clock(&bar);
 
     for (i32 i = 0; i < bar.slots_available; i++) {
         const DockApp *app = &dock_apps[i];

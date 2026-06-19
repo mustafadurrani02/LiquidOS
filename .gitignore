@@ -3,3 +3,4 @@ outputs/
 work/
 assets/fonts/*.otf
 assets/fonts/*.ttf
+!assets/fonts/Manrope-VariableFont_wght.ttf

@@ -1009,7 +1009,7 @@ static void draw_flat_icon_tile(i32 x, i32 y, i32 size, i32 radius, Color top, C
         i32 inset = rounded_gradient_inset(row, size, radius);
         gfx_fill_rect(x + inset, y + row, size - inset * 2, 1, color_lerp(top, bottom, t));
     }
-    gfx_draw_round_rect_alpha(x, y, size, size, radius, RGB(247, 252, 255), 54);
+    gfx_draw_round_rect_alpha(x, y, size, size, radius, RGB(247, 252, 255), 35);
 }
 
 static void draw_dock_icon_asset(i32 x, i32 y, i32 tile_size, i32 radius, i32 image_size,
@@ -1020,22 +1020,22 @@ static void draw_dock_icon_asset(i32 x, i32 y, i32 tile_size, i32 radius, i32 im
     gfx_refract_round_rect_edges(x, y, tile_size, tile_size, radius, 1);
     draw_flat_icon_tile(x, y, tile_size, radius, top, bottom);
     gfx_draw_argb8888_image_scaled(image_x, image_y, image_size, image_size, pixels, src_w, src_h);
-    gfx_draw_round_rect_alpha(x, y, tile_size, tile_size, radius, RGB(247, 252, 255), 66);
+    gfx_draw_round_rect_alpha(x, y, tile_size, tile_size, radius, RGB(247, 252, 255), 43);
 }
 
 static void draw_dock_clock(const TaskbarLayout *bar) {
     i32 text_x = bar->clock_x + dock_scale_value(8);
     i32 text_y = bar->clock_y + (bar->clock_h - dock_scale_value(49)) / 2;
     gfx_draw_text(text_x, text_y, clock_text, RGB(248, 251, 255), 2);
-    gfx_draw_text(text_x, text_y + dock_scale_value(34), date_text, RGB(182, 195, 214), 1);
+    gfx_draw_text(text_x, text_y + dock_scale_value(34), date_text, RGB(248, 251, 255), 1);
 }
 
 static void draw_dock_divider(const TaskbarLayout *bar) {
     i32 x = bar->clock_x + bar->clock_w + dock_gap() / 2;
     i32 y = bar->y + dock_gap();
     i32 height = bar->h - dock_gap() * 2;
-    gfx_fill_rect(x, y, 1, height, RGB(166, 178, 204));
-    gfx_fill_rect(x + 1, y, 1, height, RGB(38, 44, 64));
+    gfx_fill_rect(x, y, 1, height, RGB(133, 142, 163));
+    gfx_fill_rect(x + 1, y, 1, height, RGB(30, 35, 51));
 }
 
 static void draw_dock_resize_grip(const TaskbarLayout *bar) {

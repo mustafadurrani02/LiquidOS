@@ -153,7 +153,7 @@ static i32 dock_gap(void) {
 }
 
 static i32 dock_clock_w(void) {
-    return dock_scale_value(gfx_width() < 900 ? 112 : 126);
+    return dock_scale_value(92);
 }
 
 static i32 taskbar_x(void) {
@@ -1034,8 +1034,8 @@ static void draw_dock_divider(const TaskbarLayout *bar) {
     i32 x = bar->clock_x + bar->clock_w + dock_gap() / 2;
     i32 y = bar->y + dock_gap();
     i32 height = bar->h - dock_gap() * 2;
-    gfx_fill_rect(x, y, 1, height, RGB(226, 236, 255));
-    gfx_fill_rect(x + 1, y, 1, height, RGB(40, 46, 70));
+    gfx_fill_rect(x, y, 1, height, RGB(166, 178, 204));
+    gfx_fill_rect(x + 1, y, 1, height, RGB(38, 44, 64));
 }
 
 static void draw_dock_resize_grip(const TaskbarLayout *bar) {
@@ -1043,21 +1043,28 @@ static void draw_dock_resize_grip(const TaskbarLayout *bar) {
     i32 grip_y;
     i32 grip_size;
     dock_grip_rect(bar, &grip_x, &grip_y, &grip_size);
-    i32 thickness = dock_scale_value(6);
-    i32 curve = grip_size - thickness;
-    Color handle = RGB(178, 184, 194);
-    Color rim = RGB(238, 242, 248);
-    gfx_fill_circle_alpha(grip_x + curve, grip_y + curve, curve, RGB(58, 62, 72), 70);
-    gfx_fill_round_rect_alpha(grip_x + grip_size - thickness, grip_y + thickness / 2,
-                              thickness, grip_size - thickness / 2, thickness / 2, handle, 210);
-    gfx_fill_round_rect_alpha(grip_x + thickness / 2, grip_y + grip_size - thickness,
-                              grip_size - thickness / 2, thickness, thickness / 2, handle, 210);
+    i32 thickness = dock_scale_value(5);
+    i32 dot = thickness / 2 + 1;
+    Color shade = RGB(78, 82, 92);
+    Color handle = RGB(164, 168, 178);
+    Color rim = RGB(226, 230, 238);
+
     gfx_fill_circle_alpha(grip_x + grip_size - thickness, grip_y + grip_size - thickness,
-                          thickness, handle, 230);
-    gfx_draw_line(grip_x + grip_size - thickness / 2, grip_y + thickness,
-                  grip_x + grip_size - thickness / 2, grip_y + grip_size - thickness, rim);
-    gfx_draw_line(grip_x + thickness, grip_y + grip_size - thickness / 2,
-                  grip_x + grip_size - thickness, grip_y + grip_size - thickness / 2, rim);
+                          grip_size - thickness, shade, 66);
+    gfx_fill_circle_alpha(grip_x + grip_size - thickness, grip_y + grip_size - thickness,
+                          dot + 1, handle, 230);
+    gfx_fill_circle_alpha(grip_x + grip_size - thickness * 2, grip_y + grip_size - thickness,
+                          dot + 1, handle, 218);
+    gfx_fill_circle_alpha(grip_x + grip_size - thickness * 3, grip_y + grip_size - thickness + 1,
+                          dot, handle, 202);
+    gfx_fill_circle_alpha(grip_x + grip_size - thickness, grip_y + grip_size - thickness * 2,
+                          dot + 1, handle, 218);
+    gfx_fill_circle_alpha(grip_x + grip_size - thickness + 1, grip_y + grip_size - thickness * 3,
+                          dot, handle, 202);
+    gfx_draw_line(grip_x + grip_size - thickness * 3, grip_y + grip_size - thickness + dot,
+                  grip_x + grip_size - thickness, grip_y + grip_size - thickness + dot, rim);
+    gfx_draw_line(grip_x + grip_size - thickness + dot, grip_y + grip_size - thickness * 3,
+                  grip_x + grip_size - thickness + dot, grip_y + grip_size - thickness, rim);
 }
 
 static void draw_window_frame(const Window *window, bool focused) {
@@ -1434,9 +1441,9 @@ static void draw_taskbar(void) {
     TaskbarLayout bar;
     taskbar_layout(&bar);
     i32 compact = gfx_width() < 900 ? 1 : 0;
-    i32 radius = compact ? 27 : 32;
+    i32 radius = dock_scale_value(compact ? 27 : 32);
     i32 tile_size = dock_tile_size();
-    i32 child_radius = dock_child_radius(compact ? 48 : 54, bar.h, radius);
+    i32 child_radius = dock_child_radius(dock_scale_value(compact ? 48 : 54), bar.h, radius);
     i32 large_icon = tile_size - (compact ? 5 : 6);
     i32 small_icon = tile_size - (compact ? 9 : 10);
 

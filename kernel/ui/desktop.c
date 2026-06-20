@@ -1069,19 +1069,19 @@ static void draw_dock_resize_grip(const TaskbarLayout *bar) {
 
 static void draw_window_frame(const Window *window, bool focused) {
     const DesktopTheme *theme = &themes[current_theme];
-    Color shadow = RGB(6, 9, 13);
-    Color title = focused ? RGB(255, 255, 255) : RGB(236, 240, 246);
-    Color border = focused ? theme->accent : RGB(184, 194, 204);
+    i32 radius = 24;
+    Color rim = focused ? RGB(246, 252, 255) : RGB(214, 224, 238);
 
-    gfx_fill_round_rect_alpha(window->x + 10, window->y + 14, window->width, window->height, 18, shadow, focused ? 96 : 62);
-    if (focused) {
-        gfx_fill_round_rect_alpha(window->x - 5, window->y - 5, window->width + 10, window->height + 10, 20, theme->accent, 24);
-    }
-    gfx_liquid_glass_rect(window->x, window->y, window->width, window->height, 18);
-    gfx_fill_round_rect_alpha(window->x + 3, window->y + 34, window->width - 6, window->height - 38, 14, theme->panel, focused ? 218 : 190);
-    gfx_draw_round_rect(window->x, window->y, window->width, window->height, 18, border);
-    gfx_fill_round_rect_alpha(window->x + 1, window->y + 1, window->width - 2, 30, 17, title, focused ? 88 : 56);
-    gfx_draw_text(window->x + 64, window->y + 9, window->title, focused ? theme->text : RGB(88, 96, 106), 1);
+    gfx_blur_round_rect(window->x, window->y, window->width, window->height, radius);
+    gfx_blur_round_rect(window->x + 2, window->y + 2, window->width - 4, window->height - 4, radius - 2);
+    gfx_refract_round_rect_edges(window->x, window->y, window->width, window->height, radius, 2);
+    gfx_fill_round_rect_plain_alpha(window->x + 2, window->y + 2, window->width - 4, window->height - 4,
+                                    radius - 2, RGB(210, 232, 255), focused ? 10 : 7);
+    gfx_fill_round_rect_alpha(window->x + 6, window->y + 30, window->width - 12, window->height - 36,
+                              radius - 8, theme->panel, focused ? 220 : 196);
+    gfx_draw_round_rect_alpha(window->x, window->y, window->width, window->height, radius,
+                              rim, focused ? 76 : 48);
+    gfx_draw_text(window->x + 64, window->y + 9, window->title, focused ? theme->text : RGB(132, 142, 154), 1);
 
     gfx_fill_circle(window->x + 16, window->y + 13, 6, RGB(238, 94, 88));
     gfx_fill_circle(window->x + 36, window->y + 13, 6, RGB(242, 190, 76));

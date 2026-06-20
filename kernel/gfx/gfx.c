@@ -1,5 +1,6 @@
 #include <liquidos/gfx.h>
 #include <liquidos/lib.h>
+#include "cursor_image.h"
 #include "ui_font.h"
 
 void font_get_rows(char ch, u8 rows[7]);
@@ -733,27 +734,6 @@ void gfx_draw_text(i32 x, i32 y, const char *text, Color color, u32 scale) {
     }
 }
 
-#define CURSOR_WIDTH 11
-#define CURSOR_HEIGHT 15
-
-static const char *cursor_shape[CURSOR_HEIGHT] = {
-    "X          ",
-    "XX         ",
-    "XOX        ",
-    "XOOX       ",
-    "XOOOX      ",
-    "XOOOOX     ",
-    "XOOOOOX    ",
-    "XOOOOOOX   ",
-    "XOOOOOOOX  ",
-    "XOOOOX     ",
-    "XOXXOOX    ",
-    "XX  XOOX   ",
-    "X    XOOX  ",
-    "     XOOX  ",
-    "      XX   "
-};
-
 static bool cursor_color_at(i32 cursor_x, i32 cursor_y, i32 px, i32 py, Color *color) {
     i32 local_x = px - cursor_x;
     i32 local_y = py - cursor_y;
@@ -761,22 +741,22 @@ static bool cursor_color_at(i32 cursor_x, i32 cursor_y, i32 px, i32 py, Color *c
         return false;
     }
 
-    char p = cursor_shape[local_y][local_x];
-    if (p == 'X') {
-        *color = RGB(20, 24, 28);
-        return true;
+    u32 packed = cursor_pixels[(u32)local_y * CURSOR_WIDTH + (u32)local_x];
+    u8 alpha = (u8)(packed >> 24);
+    if (alpha == 0) {
+        return false;
     }
-    if (p == 'O') {
-        *color = RGB(245, 248, 250);
-        return true;
-    }
-    return false;
+
+    Color top = packed & 0xFFFFFF;
+    *color = alpha == 255 ? top : blend(*color, top, alpha);
+    return true;
 }
 
 void gfx_draw_cursor(i32 x, i32 y) {
     for (u32 row = 0; row < CURSOR_HEIGHT; row++) {
         for (u32 col = 0; col < CURSOR_WIDTH; col++) {
             Color color;
+            color = get_pixel(x + (i32)col, y + (i32)row);
             if (cursor_color_at(x, y, x + (i32)col, y + (i32)row, &color)) {
                 put_pixel(x + (i32)col, y + (i32)row, color);
             }

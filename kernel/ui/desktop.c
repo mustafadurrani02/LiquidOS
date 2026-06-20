@@ -153,7 +153,7 @@ static i32 dock_gap(void) {
 }
 
 static i32 dock_clock_w(void) {
-    return dock_scale_value(gfx_width() < 900 ? 86 : 98);
+    return dock_scale_value(gfx_width() < 900 ? 112 : 126);
 }
 
 static i32 taskbar_x(void) {
@@ -812,6 +812,78 @@ static u8 bcd_to_binary(u8 value) {
     return (u8)((value & 0x0F) + ((value >> 4) * 10));
 }
 
+static bool is_leap_year(u16 year) {
+    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+static u8 days_in_month(u16 year, u8 month) {
+    static const u8 days[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    if (month == 2 && is_leap_year(year)) {
+        return 29;
+    }
+    if (month < 1 || month > 12) {
+        return 31;
+    }
+    return days[month - 1];
+}
+
+static u8 day_of_week(u16 year, u8 month, u8 day) {
+    static const u8 offsets[] = { 0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4 };
+    u16 y = year;
+    if (month < 3) {
+        y--;
+    }
+    return (u8)((y + y / 4 - y / 100 + y / 400 + offsets[month - 1] + day) % 7);
+}
+
+static u8 last_sunday_of_month(u16 year, u8 month) {
+    u8 day = days_in_month(year, month);
+    while (day > 1 && day_of_week(year, month, day) != 0) {
+        day--;
+    }
+    return day;
+}
+
+static bool uk_dst_active_utc(u16 year, u8 month, u8 day, u8 hour) {
+    u8 dst_start_day = last_sunday_of_month(year, 3);
+    u8 dst_end_day = last_sunday_of_month(year, 10);
+
+    if (month > 3 && month < 10) {
+        return true;
+    }
+    if (month < 3 || month > 10) {
+        return false;
+    }
+    if (month == 3) {
+        return day > dst_start_day || (day == dst_start_day && hour >= 1);
+    }
+    return day < dst_end_day || (day == dst_end_day && hour < 1);
+}
+
+static void add_hours_to_date_time(u16 *year, u8 *month, u8 *day, u8 *hour, u8 hours) {
+    while (hours-- > 0) {
+        (*hour)++;
+        if (*hour < 24) {
+            continue;
+        }
+
+        *hour = 0;
+        (*day)++;
+        if (*day <= days_in_month(*year, *month)) {
+            continue;
+        }
+
+        *day = 1;
+        (*month)++;
+        if (*month <= 12) {
+            continue;
+        }
+
+        *month = 1;
+        (*year)++;
+    }
+}
+
 static u8 cmos_read(u8 reg) {
     outb(0x70, (u8)(0x80 | reg));
     return inb(0x71);
@@ -837,6 +909,12 @@ static void update_clock_text(void) {
     hour %= 24;
     minute %= 60;
     full_year = (u16)(2000 + (year % 100));
+    day = day == 0 ? 1 : day;
+    month = month == 0 ? 1 : month;
+
+    if (uk_dst_active_utc(full_year, month, day, hour)) {
+        add_hours_to_date_time(&full_year, &month, &day, &hour, 1);
+    }
 
     clock_text[0] = (char)('0' + hour / 10);
     clock_text[1] = (char)('0' + hour % 10);
@@ -845,8 +923,6 @@ static void update_clock_text(void) {
     clock_text[4] = (char)('0' + minute % 10);
     clock_text[5] = 0;
 
-    day = day == 0 ? 1 : day;
-    month = month == 0 ? 1 : month;
     date_text[0] = (char)('0' + (day % 100) / 10);
     date_text[1] = (char)('0' + day % 10);
     date_text[2] = '/';
@@ -948,11 +1024,10 @@ static void draw_dock_icon_asset(i32 x, i32 y, i32 tile_size, i32 radius, i32 im
 }
 
 static void draw_dock_clock(const TaskbarLayout *bar) {
-    i32 text_x = bar->clock_x + dock_scale_value(7);
-    i32 text_y = bar->clock_y + (bar->clock_h - dock_scale_value(34)) / 2;
-    gfx_draw_text(text_x, text_y, clock_text, RGB(248, 251, 255), 1);
-    gfx_draw_text(text_x + 1, text_y, clock_text, RGB(248, 251, 255), 1);
-    gfx_draw_text(text_x, text_y + dock_scale_value(19), date_text, RGB(182, 195, 214), 1);
+    i32 text_x = bar->clock_x + dock_scale_value(8);
+    i32 text_y = bar->clock_y + (bar->clock_h - dock_scale_value(49)) / 2;
+    gfx_draw_text(text_x, text_y, clock_text, RGB(248, 251, 255), 2);
+    gfx_draw_text(text_x, text_y + dock_scale_value(34), date_text, RGB(182, 195, 214), 1);
 }
 
 static void draw_dock_divider(const TaskbarLayout *bar) {

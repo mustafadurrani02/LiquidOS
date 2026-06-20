@@ -659,6 +659,12 @@ static i32 ui_font_advance(u32 index, u32 scale) {
     return advance > 4 ? (i32)advance - 2 : (i32)advance;
 }
 
+static i32 ui_font_percent_advance(u32 index, u32 percent) {
+    u32 advance = ui_font_widths[index] > 4 ? ui_font_widths[index] - 2 : ui_font_widths[index];
+    i32 scaled = (i32)((advance * percent + 50) / 100);
+    return scaled > 1 ? scaled : 1;
+}
+
 static u8 ui_font_native_alpha(u32 index, u32 x, u32 y) {
     if (x >= UI_FONT_WIDTH || y >= UI_FONT_HEIGHT) {
         return 0;
@@ -729,6 +735,54 @@ void gfx_draw_text(i32 x, i32 y, const char *text, Color color, u32 scale) {
             u32 index = ui_font_index(*text);
             gfx_draw_char(cursor_x, cursor_y, *text, color, scale);
             cursor_x += ui_font_advance(index, scale);
+        }
+        text++;
+    }
+}
+
+void gfx_draw_text_percent(i32 x, i32 y, const char *text, Color color, u32 percent) {
+    if (percent < 35) {
+        percent = 35;
+    }
+
+    i32 cursor_x = x;
+    while (*text) {
+        if (*text == '\n') {
+            cursor_x = x;
+        } else {
+            u32 index = ui_font_index(*text);
+            u32 draw_width = ui_font_widths[index] + 2;
+            if (draw_width > UI_FONT_WIDTH) {
+                draw_width = UI_FONT_WIDTH;
+            }
+
+            u32 out_width = (draw_width * percent + 50) / 100;
+            u32 out_height = (UI_FONT_HEIGHT * percent + 50) / 100;
+            if (out_width < 1) {
+                out_width = 1;
+            }
+            if (out_height < 1) {
+                out_height = 1;
+            }
+
+            for (u32 row = 0; row < out_height; row++) {
+                u32 src_y = (row * 100) / percent;
+                if (src_y >= UI_FONT_HEIGHT) {
+                    src_y = UI_FONT_HEIGHT - 1;
+                }
+                for (u32 col = 0; col < out_width; col++) {
+                    u32 src_x = (col * 100) / percent;
+                    if (src_x >= draw_width) {
+                        src_x = draw_width - 1;
+                    }
+                    u8 alpha = ui_font_native_alpha(index, src_x, src_y);
+                    if (alpha) {
+                        put_pixel(cursor_x + (i32)col, y + (i32)row,
+                                  blend(get_pixel(cursor_x + (i32)col, y + (i32)row), color, alpha));
+                    }
+                }
+            }
+            cursor_x += ui_font_percent_advance(index, percent);
         }
         text++;
     }

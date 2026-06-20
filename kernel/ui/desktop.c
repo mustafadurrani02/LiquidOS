@@ -1026,8 +1026,10 @@ static void draw_dock_icon_asset(i32 x, i32 y, i32 tile_size, i32 radius, i32 im
 static void draw_dock_clock(const TaskbarLayout *bar) {
     i32 text_x = bar->clock_x + dock_scale_value(8);
     i32 text_y = bar->clock_y + (bar->clock_h - dock_scale_value(49)) / 2;
-    gfx_draw_text(text_x, text_y, clock_text, RGB(248, 251, 255), 2);
-    gfx_draw_text(text_x, text_y + dock_scale_value(34), date_text, RGB(248, 251, 255), 1);
+    u32 time_scale = (u32)dock_scale_percent;
+    u32 date_scale = (u32)((dock_scale_percent * 50 + 50) / 100);
+    gfx_draw_text_percent(text_x, text_y, clock_text, RGB(248, 251, 255), time_scale);
+    gfx_draw_text_percent(text_x, text_y + dock_scale_value(34), date_text, RGB(248, 251, 255), date_scale);
 }
 
 static void draw_dock_divider(const TaskbarLayout *bar) {
@@ -1444,8 +1446,7 @@ static void draw_taskbar(void) {
     i32 radius = dock_scale_value(compact ? 27 : 32);
     i32 tile_size = dock_tile_size();
     i32 child_radius = dock_child_radius(dock_scale_value(compact ? 48 : 54), bar.h, radius);
-    i32 large_icon = tile_size - (compact ? 5 : 6);
-    i32 small_icon = tile_size - (compact ? 9 : 10);
+    i32 icon_size = tile_size - (compact ? 9 : 10);
 
     draw_dock_glass_capsule(bar.x, bar.y, bar.w, bar.h, radius);
     draw_dock_clock(&bar);
@@ -1454,7 +1455,7 @@ static void draw_taskbar(void) {
     for (i32 i = 0; i < bar.slots_available; i++) {
         const DockApp *app = &dock_apps[i];
         draw_dock_icon_asset(bar.slot_x + i * bar.slot_step, bar.slot_y,
-                             tile_size, child_radius, app->small_artwork ? small_icon : large_icon,
+                             tile_size, child_radius, icon_size,
                              app->pixels, app->icon_width, app->icon_height,
                              app->tile_top, app->tile_bottom);
     }

@@ -34,6 +34,7 @@ void gfx_prepare_wallpaper_rgb565(const u16 *pixels, u32 src_width, u32 src_heig
 void gfx_draw_wallpaper(void);
 void gfx_draw_char(i32 x, i32 y, char ch, Color color, u32 scale);
 void gfx_draw_text(i32 x, i32 y, const char *text, Color color, u32 scale);
+void gfx_draw_text_percent(i32 x, i32 y, const char *text, Color color, u32 percent);
 void gfx_draw_cursor(i32 x, i32 y);
 void gfx_save_scene(void);
 void gfx_restore_scene_rect(i32 x, i32 y, i32 width, i32 height);

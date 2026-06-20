@@ -1,6 +1,7 @@
 #include <liquidos/gfx.h>
 #include <liquidos/lib.h>
 #include <liquidos/liqueia.h>
+#include <liquidos/network.h>
 
 #define LIQUEIA_MAX_TABS 3
 #define LIQUEIA_MAX_HISTORY 6
@@ -11,6 +12,7 @@ typedef enum LiqueiaPage {
     LIQUEIA_BOOKMARKS,
     LIQUEIA_HISTORY,
     LIQUEIA_SETTINGS,
+    LIQUEIA_WEB,
     LIQUEIA_OFFLINE
 } LiqueiaPage;
 
@@ -58,6 +60,9 @@ static LiqueiaPage page_for_address(const char *address) {
     }
     if (strcmp(address, "liqueia://settings") == 0) {
         return LIQUEIA_SETTINGS;
+    }
+    if (network_fetch(address).ok) {
+        return LIQUEIA_WEB;
     }
     return LIQUEIA_OFFLINE;
 }
@@ -247,7 +252,7 @@ static void draw_new_tab(i32 x, i32 y, i32 width, i32 height) {
     gfx_draw_text(x + 76, y + 248, "Search or enter an address", RGB(166, 166, 174), 1);
     gfx_draw_text(x + 56, y + 305, "NATIVE APP", RGB(216, 170, 88), 1);
     gfx_draw_text(x + 56, y + 326, "Tabs, local pages, history, bookmarks and keyboard input are ready.", RGB(205, 205, 212), 1);
-    gfx_draw_text(x + 56, y + 347, "Internet pages will activate after LiquidOS gains TCP/IP and TLS.", RGB(136, 137, 146), 1);
+    gfx_draw_text(x + 56, y + 347, "Try http://liquidos.local/ or http://liquidos.local/store", RGB(136, 137, 146), 1);
 }
 
 static void draw_list_page(i32 x, i32 y, i32 width, i32 height, LiqueiaPage page) {
@@ -262,7 +267,7 @@ static void draw_list_page(i32 x, i32 y, i32 width, i32 height, LiqueiaPage page
         gfx_draw_text(x + 50, y + 252, "Do Not Track", RGB(153, 153, 162), 1);
         gfx_draw_text(x + width - 180, y + 252, "Enabled", RGB(216, 170, 88), 1);
         gfx_draw_text(x + 50, y + 280, "Network", RGB(153, 153, 162), 1);
-        gfx_draw_text(x + width - 180, y + 280, "Not installed", RGB(223, 139, 104), 1);
+        gfx_draw_text(x + width - 180, y + 280, network_info()->driver, RGB(216, 170, 88), 1);
         return;
     }
 
@@ -293,13 +298,44 @@ static void draw_list_page(i32 x, i32 y, i32 width, i32 height, LiqueiaPage page
 
 static void draw_offline(i32 x, i32 y, i32 width, i32 height) {
     LiqueiaTab *tab = &tabs[active_tab];
+    NetResponse fetched = network_fetch(tab->address);
     gfx_fill_round_rect_plain_alpha(x + 24, y + 152, width - 48, height - 172, 24, RGB(24, 25, 32), 255);
     gfx_fill_circle_alpha(x + width - 112, y + 210, 66, RGB(216, 170, 88), 20);
     gfx_draw_text(x + 52, y + 184, "This journey needs a network.", RGB(246, 238, 222), 2);
     gfx_draw_text(x + 52, y + 224, "Liqueia accepted the address:", RGB(153, 153, 162), 1);
     draw_text_trimmed(x + 52, y + 248, tab->address, 58, RGB(216, 170, 88));
-    gfx_draw_text(x + 52, y + 286, "LiquidOS does not yet include NIC, DNS, TCP/IP or TLS drivers.", RGB(205, 205, 212), 1);
-    gfx_draw_text(x + 52, y + 307, "The browser shell is ready to connect when those services arrive.", RGB(136, 137, 146), 1);
+    gfx_draw_text(x + 52, y + 286, fetched.message, RGB(205, 205, 212), 1);
+    gfx_draw_text(x + 52, y + 307, "Use liquidos.local routes now; real NIC/TCP/TLS drivers come next.", RGB(136, 137, 146), 1);
+}
+
+static void draw_web_page(i32 x, i32 y, i32 width, i32 height) {
+    LiqueiaTab *tab = &tabs[active_tab];
+    NetResponse fetched = network_fetch(tab->address);
+    gfx_fill_round_rect_plain_alpha(x + 24, y + 152, width - 48, height - 172, 24, RGB(24, 25, 32), 255);
+    gfx_fill_circle_alpha(x + width - 110, y + 205, 72, RGB(86, 155, 255), 20);
+    gfx_draw_text(x + 52, y + 184, fetched.status == 200 ? "Page loaded" : "Request failed", RGB(246, 238, 222), 2);
+    gfx_draw_text(x + 52, y + 216, fetched.mime, RGB(216, 170, 88), 1);
+    draw_text_trimmed(x + 52, y + 242, fetched.body, 60, RGB(205, 205, 212));
+
+    const char *line = fetched.body;
+    i32 row = 0;
+    while (*line && row < 7) {
+        char text[72];
+        size_t used = 0;
+        while (line[used] && line[used] != '\n' && used + 1 < sizeof(text)) {
+            text[used] = line[used];
+            used++;
+        }
+        text[used] = 0;
+        if (text[0]) {
+            gfx_draw_text(x + 52, y + 280 + row * 22, text, RGB(184, 184, 192), 1);
+            row++;
+        }
+        line += used;
+        if (*line == '\n') {
+            line++;
+        }
+    }
 }
 
 void liqueia_render(i32 x, i32 y, i32 width, i32 height) {
@@ -333,8 +369,8 @@ void liqueia_render(i32 x, i32 y, i32 width, i32 height) {
     gfx_fill_round_rect_plain_alpha(x + width - 104, y + 56, 32, 28, 11,
                                     tab->bookmarked ? RGB(216, 170, 88) : RGB(35, 36, 43), 255);
     gfx_draw_text(x + width - 93, y + 62, "*", tab->bookmarked ? RGB(28, 23, 15) : RGB(216, 170, 88), 1);
-    gfx_fill_round_rect_plain_alpha(x + width - 66, y + 56, 48, 28, 11, RGB(63, 43, 35), 255);
-    gfx_draw_text(x + width - 58, y + 63, "OFF", RGB(238, 170, 136), 1);
+    gfx_fill_round_rect_plain_alpha(x + width - 66, y + 56, 48, 28, 11, RGB(37, 58, 48), 255);
+    gfx_draw_text(x + width - 58, y + 63, "NET", RGB(164, 232, 190), 1);
 
     draw_chip(x + 22, y + 108, 104, "New tab", tab->page == LIQUEIA_NEW_TAB);
     draw_chip(x + 136, y + 108, 104, "Bookmarks", tab->page == LIQUEIA_BOOKMARKS);
@@ -343,6 +379,8 @@ void liqueia_render(i32 x, i32 y, i32 width, i32 height) {
 
     if (tab->page == LIQUEIA_NEW_TAB) {
         draw_new_tab(x, y, width, height);
+    } else if (tab->page == LIQUEIA_WEB) {
+        draw_web_page(x, y, width, height);
     } else if (tab->page == LIQUEIA_OFFLINE) {
         draw_offline(x, y, width, height);
     } else {

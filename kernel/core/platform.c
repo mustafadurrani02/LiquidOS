@@ -1,5 +1,7 @@
 #include <liquidos/disk.h>
 #include <liquidos/fs.h>
+#include <liquidos/lib.h>
+#include <liquidos/network.h>
 #include <liquidos/platform.h>
 #include <liquidos/serial.h>
 
@@ -48,11 +50,11 @@ static PlatformCapability capabilities[] = {
     { "app api", "notifications", PLATFORM_PLANNED, "not implemented" },
     { "app api", "menus/dialogs", PLATFORM_PLANNED, "not implemented" },
 
-    { "networking", "NIC driver", PLATFORM_PLANNED, "no device driver yet" },
-    { "networking", "ARP/IP/ICMP", PLATFORM_PLANNED, "network stack not implemented" },
-    { "networking", "UDP/TCP", PLATFORM_PLANNED, "network stack not implemented" },
-    { "networking", "DNS/TLS/HTTP", PLATFORM_PLANNED, "browser has offline shell only" },
-    { "networking", "updates/downloads", PLATFORM_PLANNED, "offline package catalog only" },
+    { "networking", "NIC driver", PLATFORM_PLANNED, "PCI/e1000 or virtio-net driver not implemented" },
+    { "networking", "ARP/IP/ICMP", PLATFORM_PARTIAL, "loopnet0 resolves local hosts; packet stack pending" },
+    { "networking", "UDP/TCP", PLATFORM_PARTIAL, "HTTP service boundary exists; real sockets pending" },
+    { "networking", "DNS/TLS/HTTP", PLATFORM_PARTIAL, "local DNS/HTTP routes available, TLS pending" },
+    { "networking", "updates/downloads", PLATFORM_AVAILABLE, "Store packages and files download through network service" },
 
     { "security", "app permissions", PLATFORM_PARTIAL, "syscall masks validated by packages" },
     { "security", "users/accounts", PLATFORM_PLANNED, "single-session OS" },
@@ -66,7 +68,7 @@ static PlatformCapability capabilities[] = {
     { "services", "app install service", PLATFORM_PARTIAL, "kernel Store installer" },
     { "services", "file indexing/search", PLATFORM_PLANNED, "not implemented" },
     { "services", "notifications", PLATFORM_PLANNED, "not implemented" },
-    { "services", "network manager", PLATFORM_PLANNED, "blocked on networking" },
+    { "services", "network manager", PLATFORM_PARTIAL, "loopnet0 status and download routing" },
     { "services", "crash reporter/logger", PLATFORM_PARTIAL, "serial logs and panic screen only" },
 
     { "tooling", "emulator scripts", PLATFORM_AVAILABLE, "macOS/QEMU and Windows helper scripts" },
@@ -87,6 +89,13 @@ void platform_init(void) {
     capabilities[0].status = disk_is_available() ? PLATFORM_AVAILABLE : PLATFORM_MISSING;
     capabilities[0].detail = disk_is_available() ? "IDE-compatible sector I/O detected" : "no ATA disk interface detected";
     capabilities[10].detail = fs_persistence_available() ? "LiquidFS saves to ATA sectors" : "LiquidFS is RAM-only in this VM";
+    for (size_t i = 0; i < sizeof(capabilities) / sizeof(capabilities[0]); i++) {
+        if (strcmp(capabilities[i].area, "services") == 0 &&
+            strcmp(capabilities[i].name, "network manager") == 0) {
+            capabilities[i].detail = network_info()->link_up ? "loopnet0 DNS/HTTP download route active" : "network service offline";
+            break;
+        }
+    }
     serial_write_line("Platform capability registry initialized");
 }
 

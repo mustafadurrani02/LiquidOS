@@ -3,6 +3,7 @@
 #include <liquidos/gfx.h>
 #include <liquidos/loader.h>
 #include <liquidos/lib.h>
+#include <liquidos/network.h>
 #include <liquidos/platform.h>
 #include <liquidos/pmm.h>
 #include <liquidos/power.h>
@@ -149,6 +150,7 @@ static void execute_command(const char *command) {
 
     if (strcmp(command, "help") == 0) {
         terminal_write_line("Commands: help, clear, about, mem, ps, platform, drivers, services, security");
+        terminal_write_line("Network: net, ping HOST, fetch URL PATH.");
         terminal_write_line("Apps: spawn, runhello, runapps, runcrash, syscall, apps, download NAME, runapp NAME, uninstall NAME.");
         terminal_write_line("Files: ls, cat, touch, write, rm. Store: apps, download NAME, runapp NAME, uninstall NAME.");
     } else if (strcmp(command, "clear") == 0) {
@@ -207,6 +209,41 @@ static void execute_command(const char *command) {
     } else if (strcmp(command, "security") == 0) {
         terminal_write_platform_area("isolation");
         terminal_write_platform_area("security");
+    } else if (strcmp(command, "net") == 0) {
+        const NetInfo *info = network_info();
+        char line[TERMINAL_LINE_LENGTH];
+        line[0] = 0;
+        append_text(line, sizeof(line), "Driver: ");
+        append_text(line, sizeof(line), info->driver);
+        terminal_write_line(line);
+        line[0] = 0;
+        append_text(line, sizeof(line), "IPv4: ");
+        append_text(line, sizeof(line), info->ipv4);
+        append_text(line, sizeof(line), " gateway ");
+        append_text(line, sizeof(line), info->gateway);
+        terminal_write_line(line);
+        line[0] = 0;
+        append_text(line, sizeof(line), "DNS: ");
+        append_text(line, sizeof(line), info->dns);
+        append_text(line, sizeof(line), info->link_up ? " link up" : " link down");
+        terminal_write_line(line);
+    } else if (starts_with(command, "ping ")) {
+        char host[NET_HOST_LENGTH];
+        copy_token(command + 5, host, sizeof(host));
+        terminal_write_line(network_ping(host) ? "ping: reply received" : "ping: host unreachable");
+    } else if (starts_with(command, "fetch ")) {
+        char url[NET_URL_LENGTH];
+        char path[FS_NAME_LENGTH];
+        const char *rest = copy_token(command + 6, url, sizeof(url));
+        copy_token(rest, path, sizeof(path));
+        if (!path[0]) {
+            terminal_write_line("Usage: fetch URL PATH");
+        } else if (network_download_to_file(url, path)) {
+            terminal_write_line("Downloaded file saved.");
+        } else {
+            NetResponse fetched = network_fetch(url);
+            terminal_write_line(fetched.message);
+        }
     } else if (strcmp(command, "spawn") == 0) {
         u64 pid = syscall_call0(SYS_SPAWN_STUB);
         char pid_text[24];

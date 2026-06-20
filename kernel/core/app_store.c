@@ -1,6 +1,7 @@
 #include <liquidos/app_store.h>
 #include <liquidos/fs.h>
 #include <liquidos/lib.h>
+#include <liquidos/network.h>
 #include <liquidos/serial.h>
 #include <liquidos/syscall.h>
 
@@ -84,7 +85,7 @@ static bool package_has_field(const char *contents, const char *field, const cha
 }
 
 void app_store_init(void) {
-    fs_write("STORE/CATALOG.TXT", "notes.lpkg\npaint.lpkg\ncalc.lpkg\nNetwork download transport pending TCP/IP.");
+    fs_write("STORE/CATALOG.TXT", "notes.lpkg\npaint.lpkg\ncalc.lpkg\nTransport: loopnet0 HTTP package downloads.");
     for (size_t i = 0; i < app_store_count(); i++) {
         receipt_paths[i][0] = 0;
         append_text(receipt_paths[i], sizeof(receipt_paths[i]), "STORE/INSTALLED/");
@@ -161,6 +162,11 @@ StoreInstallCheck app_store_validate_by_index(size_t index) {
 bool app_store_install_by_index(size_t index) {
     const StoreApp *app = app_store_get(index);
     if (!app) {
+        return false;
+    }
+
+    const char *url = network_package_url(app->name);
+    if (url[0] && !network_download_to_file(url, app->package_path)) {
         return false;
     }
 

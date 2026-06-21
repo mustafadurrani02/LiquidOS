@@ -157,6 +157,7 @@ static size_t notification_count = 0;
 static void append_text(char *dest, size_t dest_size, const char *src);
 static i32 taskbar_w(void);
 static i32 taskbar_h(void);
+static void window_title_group_layout(const Window *window, i32 *title_x, i32 *title_w, i32 *min_x, i32 *max_x, i32 *close_x, i32 *y, i32 *control_size);
 
 static i32 dock_app_count(void) {
     return (i32)(sizeof(dock_apps) / sizeof(dock_apps[0]));
@@ -967,21 +968,30 @@ static void handle_window_click(void) {
 
         bring_to_front(kind);
 
-        if (point_in_rect(mouse_x, mouse_y, window->x + 10, window->y + 7, 12, 12)) {
-            mark_dirty_rect(window->x, window->y, window->width, window->height);
-            window->open = false;
-            window->minimized = false;
-            push_notification("Window closed", window->title);
-            return;
-        }
+        i32 title_x;
+        i32 title_w;
+        i32 min_x;
+        i32 max_x;
+        i32 close_x;
+        i32 control_y;
+        i32 control_size;
+        window_title_group_layout(window, &title_x, &title_w, &min_x, &max_x, &close_x, &control_y, &control_size);
 
-        if (point_in_rect(mouse_x, mouse_y, window->x + 30, window->y + 7, 12, 12)) {
+        if (point_in_rect(mouse_x, mouse_y, min_x, control_y, control_size, control_size)) {
             minimize_window(window);
             return;
         }
 
-        if (point_in_rect(mouse_x, mouse_y, window->x + 50, window->y + 7, 12, 12)) {
+        if (point_in_rect(mouse_x, mouse_y, max_x, control_y, control_size, control_size)) {
             toggle_window_size(window);
+            return;
+        }
+
+        if (point_in_rect(mouse_x, mouse_y, close_x, control_y, control_size, control_size)) {
+            mark_dirty_rect(window->x, window->y, window->width, window->height);
+            window->open = false;
+            window->minimized = false;
+            push_notification("Window closed", window->title);
             return;
         }
 
@@ -1179,6 +1189,42 @@ static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
     return (child_size * dock_radius) / dock_height;
 }
 
+static i32 window_control_size(void) {
+    return 23;
+}
+
+static i32 window_control_gap(void) {
+    return 7;
+}
+
+static i32 window_title_chip_width(const Window *window) {
+    i32 width = 78 + (i32)strlen(window->title) * 6;
+    if (width > window->width - 130) {
+        width = window->width - 130;
+    }
+    return width < 88 ? 88 : width;
+}
+
+static void window_title_group_layout(const Window *window, i32 *title_x, i32 *title_w, i32 *min_x, i32 *max_x, i32 *close_x, i32 *y, i32 *control_size) {
+    i32 size = window_control_size();
+    i32 gap = window_control_gap();
+    i32 chip_w = window_title_chip_width(window);
+    i32 group_w = chip_w + gap + size * 3 + gap * 2;
+    i32 start_x = window->x + window->width - group_w - 12;
+
+    if (start_x < window->x + 12) {
+        start_x = window->x + 12;
+    }
+
+    *title_x = start_x;
+    *title_w = chip_w;
+    *min_x = start_x + chip_w + gap;
+    *max_x = *min_x + size + gap;
+    *close_x = *max_x + size + gap;
+    *y = window->y + 6;
+    *control_size = size;
+}
+
 static u8 color_channel_lerp(u8 a, u8 b, i32 t) {
     return (u8)((a * (255 - t) + b * t) / 255);
 }
@@ -1291,6 +1337,18 @@ static void draw_window_frame(const Window *window, bool focused) {
     const DesktopTheme *theme = &themes[current_theme];
     i32 radius = 24;
     Color rim = focused ? RGB(246, 252, 255) : RGB(214, 224, 238);
+    i32 title_x;
+    i32 title_w;
+    i32 min_x;
+    i32 max_x;
+    i32 close_x;
+    i32 control_y;
+    i32 control_size;
+    window_title_group_layout(window, &title_x, &title_w, &min_x, &max_x, &close_x, &control_y, &control_size);
+    i32 chip_radius = (control_size * radius) / window->height;
+    if (chip_radius < 8) {
+        chip_radius = 8;
+    }
 
     gfx_blur_round_rect(window->x, window->y, window->width, window->height, radius);
     gfx_blur_round_rect(window->x + 2, window->y + 2, window->width - 4, window->height - 4, radius - 2);
@@ -1301,16 +1359,33 @@ static void draw_window_frame(const Window *window, bool focused) {
                               radius - 8, theme->panel, focused ? 220 : 196);
     gfx_draw_round_rect_alpha(window->x, window->y, window->width, window->height, radius,
                               rim, focused ? 76 : 48);
-    gfx_draw_text(window->x + 64, window->y + 9, window->title, focused ? theme->text : RGB(132, 142, 154), 1);
 
-    gfx_fill_circle(window->x + 16, window->y + 13, 6, RGB(238, 94, 88));
-    gfx_fill_circle(window->x + 36, window->y + 13, 6, RGB(242, 190, 76));
-    gfx_fill_circle(window->x + 56, window->y + 13, 6, RGB(83, 196, 101));
-    gfx_draw_line(window->x + 13, window->y + 10, window->x + 19, window->y + 16, RGB(99, 28, 27));
-    gfx_draw_line(window->x + 19, window->y + 10, window->x + 13, window->y + 16, RGB(99, 28, 27));
-    gfx_draw_line(window->x + 53, window->y + 16, window->x + 59, window->y + 10, RGB(31, 92, 40));
-    gfx_draw_line(window->x + 54, window->y + 10, window->x + 59, window->y + 10, RGB(31, 92, 40));
-    gfx_draw_line(window->x + 59, window->y + 10, window->x + 59, window->y + 15, RGB(31, 92, 40));
+    gfx_blur_round_rect(title_x, control_y, title_w, control_size, chip_radius);
+    gfx_refract_round_rect_edges(title_x, control_y, title_w, control_size, chip_radius, 1);
+    gfx_fill_round_rect_plain_alpha(title_x, control_y, title_w, control_size, chip_radius, RGB(230, 244, 255), focused ? 24 : 14);
+    gfx_draw_round_rect_alpha(title_x, control_y, title_w, control_size, chip_radius, RGB(246, 252, 255), focused ? 64 : 38);
+    gfx_fill_round_rect_alpha(title_x + 7, control_y + 6, 12, 12, 5, theme->accent, focused ? 156 : 92);
+    gfx_draw_text(title_x + 26, control_y + 7, window->title, focused ? theme->text : RGB(132, 142, 154), 1);
+
+    gfx_blur_round_rect(min_x, control_y, control_size, control_size, chip_radius);
+    gfx_refract_round_rect_edges(min_x, control_y, control_size, control_size, chip_radius, 1);
+    gfx_fill_round_rect_plain_alpha(min_x, control_y, control_size, control_size, chip_radius, RGB(242, 190, 76), focused ? 34 : 18);
+    gfx_draw_round_rect_alpha(min_x, control_y, control_size, control_size, chip_radius, RGB(246, 252, 255), focused ? 58 : 34);
+    gfx_fill_rect(min_x + 7, control_y + 13, control_size - 14, 2, RGB(255, 246, 214));
+
+    gfx_blur_round_rect(max_x, control_y, control_size, control_size, chip_radius);
+    gfx_refract_round_rect_edges(max_x, control_y, control_size, control_size, chip_radius, 1);
+    gfx_fill_round_rect_plain_alpha(max_x, control_y, control_size, control_size, chip_radius, RGB(83, 196, 101), focused ? 32 : 16);
+    gfx_draw_round_rect_alpha(max_x, control_y, control_size, control_size, chip_radius, RGB(246, 252, 255), focused ? 58 : 34);
+    gfx_draw_rect(max_x + 7, control_y + 7, control_size - 14, control_size - 14, RGB(224, 255, 230));
+
+    gfx_blur_round_rect(close_x, control_y, control_size, control_size, chip_radius);
+    gfx_refract_round_rect_edges(close_x, control_y, control_size, control_size, chip_radius, 1);
+    gfx_fill_round_rect_plain_alpha(close_x, control_y, control_size, control_size, chip_radius, RGB(238, 94, 88), focused ? 32 : 16);
+    gfx_draw_round_rect_alpha(close_x, control_y, control_size, control_size, chip_radius, RGB(246, 252, 255), focused ? 58 : 34);
+    gfx_draw_line(close_x + 8, control_y + 8, close_x + control_size - 8, control_y + control_size - 8, RGB(255, 226, 224));
+    gfx_draw_line(close_x + control_size - 8, control_y + 8, close_x + 8, control_y + control_size - 8, RGB(255, 226, 224));
+
     gfx_draw_line(window->x + window->width - 17, window->y + window->height - 6, window->x + window->width - 6, window->y + window->height - 17, RGB(132, 146, 154));
     gfx_draw_line(window->x + window->width - 12, window->y + window->height - 5, window->x + window->width - 5, window->y + window->height - 12, RGB(132, 146, 154));
 }

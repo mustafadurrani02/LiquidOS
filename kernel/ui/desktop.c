@@ -7,6 +7,8 @@
 #include <liquidos/liqueia.h>
 #include <liquidos/platform.h>
 #include <liquidos/power.h>
+#include <liquidos/process.h>
+#include <liquidos/scheduler.h>
 #include <liquidos/terminal.h>
 #include <liquidos/ui.h>
 #include "../gfx/app_icons.h"
@@ -29,10 +31,22 @@ typedef struct Window {
     i32 y;
     i32 width;
     i32 height;
+    i32 restore_x;
+    i32 restore_y;
+    i32 restore_width;
+    i32 restore_height;
     const char *title;
     bool open;
+    bool minimized;
     bool expanded;
 } Window;
+
+typedef struct Notification {
+    char title[24];
+    char body[64];
+    u64 created_tick;
+    bool unread;
+} Notification;
 
 typedef struct TaskbarLayout {
     i32 x;
@@ -99,6 +113,7 @@ static WindowKind focused_window = WINDOW_TERMINAL;
 static i32 mouse_x = 320;
 static i32 mouse_y = 240;
 static bool previous_left = false;
+static bool previous_right = false;
 static bool dragging = false;
 static bool resizing = false;
 static bool dock_resizing = false;
@@ -115,11 +130,15 @@ static char clock_text[6] = "00:00";
 static char date_text[11] = "00/00/0000";
 static char taskbar_message[32] = "SEARCH";
 static char app_status_text[64] = "Install an app, then run it from Store or Launch Apps.";
+static char file_clipboard[FS_NAME_LENGTH] = "";
 static bool wifi_enabled = true;
 static bool battery_saver = false;
 static bool full_redraw_needed = true;
 static bool cursor_redraw_needed = true;
 static bool dirty_region_valid = false;
+static bool context_menu_open = false;
+static i32 context_menu_x = 0;
+static i32 context_menu_y = 0;
 static i32 dirty_x0 = 0;
 static i32 dirty_y0 = 0;
 static i32 dirty_x1 = 0;
@@ -131,6 +150,9 @@ static i32 selected_file_index = 0;
 static u32 new_file_counter = 1;
 static size_t current_theme = 0;
 static size_t selected_store_app = 0;
+static Notification notifications[8];
+static size_t notification_head = 0;
+static size_t notification_count = 0;
 
 static void append_text(char *dest, size_t dest_size, const char *src);
 static i32 taskbar_w(void);
@@ -287,6 +309,32 @@ static void mark_dirty_window(WindowKind kind) {
     mark_dirty_rect(window->x, window->y, window->width, window->height);
 }
 
+static Window make_window(i32 x, i32 y, i32 width, i32 height, const char *title) {
+    Window window;
+    window.x = x;
+    window.y = y;
+    window.width = width;
+    window.height = height;
+    window.restore_x = x;
+    window.restore_y = y;
+    window.restore_width = width;
+    window.restore_height = height;
+    window.title = title;
+    window.open = false;
+    window.minimized = false;
+    window.expanded = false;
+    return window;
+}
+
+static void remember_window_restore(Window *window) {
+    if (!window->expanded) {
+        window->restore_x = window->x;
+        window->restore_y = window->y;
+        window->restore_width = window->width;
+        window->restore_height = window->height;
+    }
+}
+
 static void clamp_window_size(Window *window) {
     if (window->width < 300) {
         window->width = 300;
@@ -334,8 +382,25 @@ static void bring_to_front(WindowKind kind) {
 
 static void open_window(WindowKind kind) {
     windows[kind].open = true;
+    windows[kind].minimized = false;
     bring_to_front(kind);
     mark_dirty_window(kind);
+}
+
+static void push_notification(const char *title, const char *body) {
+    Notification *note = &notifications[notification_head];
+    strncpy(note->title, title, sizeof(note->title) - 1);
+    note->title[sizeof(note->title) - 1] = 0;
+    strncpy(note->body, body, sizeof(note->body) - 1);
+    note->body[sizeof(note->body) - 1] = 0;
+    note->created_tick = scheduler_ticks();
+    note->unread = true;
+
+    notification_head = (notification_head + 1) % (sizeof(notifications) / sizeof(notifications[0]));
+    if (notification_count < sizeof(notifications) / sizeof(notifications[0])) {
+        notification_count++;
+    }
+    mark_dirty_full();
 }
 
 static void set_taskbar_message(const char *message) {
@@ -422,18 +487,27 @@ static void clamp_window(Window *window) {
 static void toggle_window_size(Window *window) {
     mark_dirty_rect(window->x, window->y, window->width, window->height);
     if (!window->expanded) {
+        remember_window_restore(window);
         window->x = 90;
         window->y = taskbar_y() + taskbar_h() + 28;
         window->width = (i32)gfx_width() - 180;
         window->height = (i32)gfx_height() - window->y - 70;
         window->expanded = true;
     } else {
-        window->width = 620;
-        window->height = 360;
+        window->x = window->restore_x;
+        window->y = window->restore_y;
+        window->width = window->restore_width;
+        window->height = window->restore_height;
         window->expanded = false;
     }
     clamp_window(window);
     mark_dirty_rect(window->x, window->y, window->width, window->height);
+}
+
+static void minimize_window(Window *window) {
+    mark_dirty_rect(window->x, window->y, window->width, window->height);
+    window->minimized = true;
+    mark_dirty_taskbar();
 }
 
 static void handle_taskbar_click(void) {
@@ -470,6 +544,17 @@ static void append_text(char *dest, size_t dest_size, const char *src) {
     dest[used] = 0;
 }
 
+static const char *process_state_name(ProcessState state) {
+    switch (state) {
+    case PROCESS_READY: return "ready";
+    case PROCESS_RUNNING: return "running";
+    case PROCESS_SLEEPING: return "sleep";
+    case PROCESS_STOPPED: return "stopped";
+    case PROCESS_CRASHED: return "crashed";
+    default: return "unused";
+    }
+}
+
 static void make_untitled_name(char *out, size_t out_size) {
     char number[16];
     u64_to_dec(new_file_counter++, number, sizeof(number));
@@ -477,6 +562,22 @@ static void make_untitled_name(char *out, size_t out_size) {
     append_text(out, out_size, "DESKTOP/UNTITLED");
     append_text(out, out_size, number);
     append_text(out, out_size, ".TXT");
+}
+
+static void make_file_variant_name(const char *source, const char *prefix, const char *suffix, char *out, size_t out_size) {
+    const char *base = source;
+    const char *slash = source;
+    while (*slash) {
+        if (*slash == '/') {
+            base = slash + 1;
+        }
+        slash++;
+    }
+
+    out[0] = 0;
+    append_text(out, out_size, prefix);
+    append_text(out, out_size, base);
+    append_text(out, out_size, suffix);
 }
 
 static void handle_files_click(const Window *window) {
@@ -490,6 +591,7 @@ static void handle_files_click(const Window *window) {
         if (fs_write(name, "New LiquidOS file. Edit it from Terminal with: write NAME text")) {
             selected_file_index = fs_find_index(name);
             set_taskbar_message("FILE CREATED");
+            push_notification("Files", "Created a new file.");
             mark_dirty_rect(window->x, window->y, window->width, window->height);
         }
         return;
@@ -505,15 +607,70 @@ static void handle_files_click(const Window *window) {
                 selected_file_index = 0;
             }
             set_taskbar_message("FILE DELETED");
+            push_notification("Files", "Deleted selected file.");
             mark_dirty_rect(window->x, window->y, window->width, window->height);
         }
         return;
     }
 
-    if (point_in_rect(mouse_x, mouse_y, x + 188, y + 10, 112, 28)) {
+    if (point_in_rect(mouse_x, mouse_y, x + 188, y + 10, 74, 28)) {
+        const FsFile *file = fs_get_file((size_t)selected_file_index);
+        char copy_name[FS_NAME_LENGTH];
+        if (file) {
+            make_file_variant_name(file->name, "DESKTOP/COPY-", "", copy_name, sizeof(copy_name));
+            if (fs_copy(file->name, copy_name)) {
+                selected_file_index = fs_find_index(copy_name);
+                strncpy(file_clipboard, copy_name, sizeof(file_clipboard) - 1);
+                file_clipboard[sizeof(file_clipboard) - 1] = 0;
+                set_taskbar_message("FILE COPIED");
+                push_notification("Files", "Copied selected file.");
+            } else {
+                set_taskbar_message("COPY FAILED");
+            }
+            mark_dirty_rect(window->x, window->y, window->width, window->height);
+        }
+        return;
+    }
+
+    if (point_in_rect(mouse_x, mouse_y, x + 270, y + 10, 86, 28)) {
+        const FsFile *file = fs_get_file((size_t)selected_file_index);
+        char new_name[FS_NAME_LENGTH];
+        if (file) {
+            make_file_variant_name(file->name, "DESKTOP/RENAMED-", "", new_name, sizeof(new_name));
+            if (fs_rename(file->name, new_name)) {
+                selected_file_index = fs_find_index(new_name);
+                set_taskbar_message("FILE RENAMED");
+                push_notification("Files", "Renamed selected file.");
+            } else {
+                set_taskbar_message("RENAME FAILED");
+            }
+            mark_dirty_rect(window->x, window->y, window->width, window->height);
+        }
+        return;
+    }
+
+    if (point_in_rect(mouse_x, mouse_y, x + 364, y + 10, 72, 28)) {
+        const FsFile *file = fs_get_file((size_t)selected_file_index);
+        char moved_name[FS_NAME_LENGTH];
+        if (file) {
+            make_file_variant_name(file->name, "DOCUMENTS/", "", moved_name, sizeof(moved_name));
+            if (fs_rename(file->name, moved_name)) {
+                selected_file_index = fs_find_index(moved_name);
+                set_taskbar_message("FILE MOVED");
+                push_notification("Files", "Moved selected file.");
+            } else {
+                set_taskbar_message("MOVE FAILED");
+            }
+            mark_dirty_rect(window->x, window->y, window->width, window->height);
+        }
+        return;
+    }
+
+    if (point_in_rect(mouse_x, mouse_y, x + 444, y + 10, 112, 28)) {
         fs_write("DESKTOP/DEMO.TXT", "Saved from the graphical Files app. This file lives in the LiquidOS RAM filesystem.");
         selected_file_index = fs_find_index("DESKTOP/DEMO.TXT");
         set_taskbar_message("FILE SAVED");
+        push_notification("Files", "Saved DESKTOP/DEMO.TXT.");
         mark_dirty_rect(window->x, window->y, window->width, window->height);
         return;
     }
@@ -564,6 +721,7 @@ static void handle_store_click(const Window *window) {
                 append_text(message, sizeof(message), " installed.");
                 set_app_status(message);
                 set_taskbar_message("APP INSTALLED");
+                push_notification("Store", message);
                 mark_dirty_window(WINDOW_LAUNCHER);
                 mark_dirty_window(WINDOW_SETTINGS);
             } else {
@@ -578,6 +736,7 @@ static void handle_store_click(const Window *window) {
             if (app_store_uninstall_by_index(i)) {
                 set_app_status("App removed.");
                 set_taskbar_message("APP REMOVED");
+                push_notification("Store", "App removed.");
             } else {
                 set_app_status("Remove failed.");
                 set_taskbar_message("REMOVE FAILED");
@@ -627,6 +786,7 @@ static void handle_settings_click(const Window *window) {
             if (app_store_uninstall_by_index(i)) {
                 set_app_status("App removed from App Manager.");
                 set_taskbar_message("APP REMOVED");
+                push_notification("Settings", "App removed from App Manager.");
             } else {
                 set_app_status("Remove failed.");
                 set_taskbar_message("REMOVE FAILED");
@@ -635,6 +795,28 @@ static void handle_settings_click(const Window *window) {
             return;
         }
         row_y += 38;
+    }
+
+    i32 task_y = y + 246;
+    for (size_t i = 0; i < process_count() && i < 3; i++) {
+        const Process *process = process_get(i);
+        if (!process) {
+            continue;
+        }
+        i32 process_y = task_y + 28 + (i32)i * 28;
+        if (process->mode == PROCESS_USER &&
+            process->state != PROCESS_STOPPED &&
+            process->state != PROCESS_CRASHED &&
+            point_in_rect(mouse_x, mouse_y, manager_x + manager_w - 58, process_y + 2, 46, 20)) {
+            if (process_kill(process->pid, -9)) {
+                set_taskbar_message("APP CLOSED");
+                push_notification("Task Manager", "Force closed user process.");
+            } else {
+                set_taskbar_message("KILL FAILED");
+            }
+            mark_dirty_full();
+            return;
+        }
     }
 }
 
@@ -714,19 +896,21 @@ static void handle_control_center_click(const Window *window) {
     if (point_in_rect(mouse_x, mouse_y, x + 22, y + 64, 132, 42)) {
         wifi_enabled = !wifi_enabled;
         set_taskbar_message(wifi_enabled ? "WIFI ENABLED" : "WIFI DISABLED");
+        push_notification("Control Center", wifi_enabled ? "Wi-Fi enabled." : "Wi-Fi disabled.");
         mark_dirty_full();
         return;
     }
     if (point_in_rect(mouse_x, mouse_y, x + 166, y + 64, 132, 42)) {
         battery_saver = !battery_saver;
         set_taskbar_message(battery_saver ? "BATTERY SAVER" : "FULL POWER");
+        push_notification("Control Center", battery_saver ? "Battery saver enabled." : "Full power mode enabled.");
         mark_dirty_full();
         return;
     }
-    if (point_in_rect(mouse_x, mouse_y, x + 22, y + 198, 112, 34)) {
+    if (point_in_rect(mouse_x, mouse_y, x + 22, y + window->height - 84, 112, 34)) {
         power_reboot();
     }
-    if (point_in_rect(mouse_x, mouse_y, x + 146, y + 198, 132, 34)) {
+    if (point_in_rect(mouse_x, mouse_y, x + 146, y + window->height - 84, 132, 34)) {
         power_shutdown();
     }
 }
@@ -734,7 +918,7 @@ static void handle_control_center_click(const Window *window) {
 static bool point_in_open_window(i32 x, i32 y) {
     for (int z = WINDOW_COUNT - 1; z >= 0; z--) {
         Window *window = &windows[z_order[z]];
-        if (window->open && point_in_rect(x, y, window->x, window->y, window->width, window->height)) {
+        if (window->open && !window->minimized && point_in_rect(x, y, window->x, window->y, window->width, window->height)) {
             return true;
         }
     }
@@ -742,8 +926,30 @@ static bool point_in_open_window(i32 x, i32 y) {
 }
 
 static void handle_desktop_click(void) {
-    (void)mouse_x;
-    (void)mouse_y;
+    if (!context_menu_open) {
+        return;
+    }
+
+    i32 row = (mouse_y - context_menu_y) / 28;
+    if (point_in_rect(mouse_x, mouse_y, context_menu_x, context_menu_y, 156, 116)) {
+        if (row == 0) {
+            open_window(WINDOW_LAUNCHER);
+        } else if (row == 1) {
+            open_window(WINDOW_FILES);
+        } else if (row == 2) {
+            open_window(WINDOW_SETTINGS);
+        } else if (row == 3) {
+            char name[FS_NAME_LENGTH];
+            make_untitled_name(name, sizeof(name));
+            if (fs_write(name, "Created from the LiquidOS desktop context menu.")) {
+                selected_file_index = fs_find_index(name);
+                set_taskbar_message("FILE CREATED");
+                push_notification("Desktop", "Created a new desktop file.");
+            }
+        }
+    }
+    context_menu_open = false;
+    mark_dirty_full();
 }
 
 static void handle_window_click(void) {
@@ -751,7 +957,7 @@ static void handle_window_click(void) {
         WindowKind kind = z_order[z];
         Window *window = &windows[kind];
 
-        if (!window->open) {
+        if (!window->open || window->minimized) {
             continue;
         }
 
@@ -764,10 +970,17 @@ static void handle_window_click(void) {
         if (point_in_rect(mouse_x, mouse_y, window->x + 10, window->y + 7, 12, 12)) {
             mark_dirty_rect(window->x, window->y, window->width, window->height);
             window->open = false;
+            window->minimized = false;
+            push_notification("Window closed", window->title);
             return;
         }
 
         if (point_in_rect(mouse_x, mouse_y, window->x + 30, window->y + 7, 12, 12)) {
+            minimize_window(window);
+            return;
+        }
+
+        if (point_in_rect(mouse_x, mouse_y, window->x + 50, window->y + 7, 12, 12)) {
             toggle_window_size(window);
             return;
         }
@@ -1111,7 +1324,10 @@ static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
     gfx_fill_round_rect_alpha(x + 8, y + 8, width - 16, 42, 14, RGB(255, 255, 255), 75);
     draw_button(x + 10, y + 10, 74, "NEW", false);
     draw_button(x + 92, y + 10, 86, "DELETE", false);
-    draw_button(x + 188, y + 10, 112, "SAVE DEMO", false);
+    draw_button(x + 188, y + 10, 74, "COPY", false);
+    draw_button(x + 270, y + 10, 86, "RENAME", false);
+    draw_button(x + 364, y + 10, 72, "MOVE", false);
+    draw_button(x + 444, y + 10, 112, "SAVE DEMO", false);
 
     i32 list_w = width / 2 - 16;
     i32 preview_x = x + list_w + 22;
@@ -1150,6 +1366,10 @@ static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
         gfx_draw_text(preview_x + 14, y + 74, selected->name, RGB(35, 43, 50), 1);
         gfx_fill_rect(preview_x + 14, y + 96, width - list_w - 62, 1, RGB(218, 226, 232));
         gfx_draw_text(preview_x + 14, y + 112, selected->contents[0] ? selected->contents : "(empty file)", RGB(71, 82, 90), 1);
+        if (file_clipboard[0]) {
+            gfx_draw_text(preview_x + 14, y + height - 36, "Clipboard:", RGB(88, 98, 108), 1);
+            gfx_draw_text(preview_x + 96, y + height - 36, file_clipboard, RGB(48, 58, 68), 1);
+        }
     }
 }
 
@@ -1351,7 +1571,7 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     char number[16];
     storage[0] = 0;
     append_text(storage, sizeof(storage), fs_persistence_available() ? "Persistence: disk-backed" : "Persistence: RAM only");
-    gfx_draw_text(manager_x, y + 254, storage, RGB(82, 94, 104), 1);
+    gfx_draw_text(x + 20, y + 316, storage, RGB(82, 94, 104), 1);
     storage[0] = 0;
     append_text(storage, sizeof(storage), "LiquidFS: ");
     u64_to_dec(fs_file_count(), number, sizeof(number));
@@ -1360,7 +1580,7 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     u64_to_dec(fs_capacity(), number, sizeof(number));
     append_text(storage, sizeof(storage), number);
     append_text(storage, sizeof(storage), " files used");
-    gfx_draw_text(manager_x, y + 274, storage, RGB(82, 94, 104), 1);
+    gfx_draw_text(x + 20, y + 336, storage, RGB(82, 94, 104), 1);
 
     PlatformSummary summary = platform_summary();
     storage[0] = 0;
@@ -1371,8 +1591,34 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     u64_to_dec(summary.partial, number, sizeof(number));
     append_text(storage, sizeof(storage), number);
     append_text(storage, sizeof(storage), " partial");
-    gfx_draw_text(manager_x, y + 294, storage, RGB(82, 94, 104), 1);
-    gfx_draw_text(manager_x, y + 316, app_status_text, RGB(82, 94, 104), 1);
+    gfx_draw_text(x + 20, y + 356, storage, RGB(82, 94, 104), 1);
+
+    gfx_draw_text(manager_x, y + 246, "Task Manager", theme->text, 1);
+    draw_glass_panel(manager_x, y + 266, manager_w, 104, 16);
+    size_t rows = process_count();
+    if (rows > 3) {
+        rows = 3;
+    }
+    for (size_t i = 0; i < rows; i++) {
+        const Process *process = process_get(i);
+        if (!process) {
+            continue;
+        }
+        i32 process_y = y + 274 + (i32)i * 28;
+        char pid_text[16];
+        char ticks_text[16];
+        u64_to_dec(process->pid, pid_text, sizeof(pid_text));
+        u64_to_dec(process->ticks, ticks_text, sizeof(ticks_text));
+        gfx_draw_text(manager_x + 12, process_y + 8, pid_text, RGB(66, 76, 86), 1);
+        gfx_draw_text(manager_x + 42, process_y + 8, process->name, theme->text, 1);
+        gfx_draw_text(manager_x + 126, process_y + 8, process_state_name(process->state), RGB(82, 94, 104), 1);
+        gfx_draw_text(manager_x + 196, process_y + 8, ticks_text, RGB(82, 94, 104), 1);
+        if (process->mode == PROCESS_USER && process->state != PROCESS_STOPPED && process->state != PROCESS_CRASHED) {
+            gfx_fill_round_rect_alpha(manager_x + manager_w - 58, process_y + 2, 46, 20, 8, RGB(180, 74, 82), 218);
+            gfx_draw_text(manager_x + manager_w - 52, process_y + 8, "FORCE", RGB(255, 255, 255), 1);
+        }
+    }
+    gfx_draw_text(manager_x, y + 382, app_status_text, RGB(82, 94, 104), 1);
 }
 
 static void draw_control_center_window(i32 x, i32 y, i32 width, i32 height) {
@@ -1405,15 +1651,75 @@ static void draw_control_center_window(i32 x, i32 y, i32 width, i32 height) {
     append_text(line, sizeof(line), " partial");
     gfx_draw_text(x + 40, y + 176, line, RGB(82, 94, 104), 1);
 
-    gfx_fill_round_rect_alpha(x + 22, y + 198, 112, 34, 12, RGB(232, 238, 246), 240);
-    gfx_draw_text(x + 50, y + 210, "Restart", RGB(35, 50, 58), 1);
-    gfx_fill_round_rect_alpha(x + 146, y + 198, 132, 34, 12, RGB(248, 220, 224), 240);
-    gfx_draw_text(x + 178, y + 210, "Shutdown", RGB(92, 30, 40), 1);
+    gfx_draw_text(x + 24, y + 196, "Notifications", theme->text, 1);
+    i32 note_y = y + 216;
+    size_t max_notes = notification_count < 3 ? notification_count : 3;
+    for (size_t i = 0; i < max_notes; i++) {
+        size_t index = (notification_head + sizeof(notifications) / sizeof(notifications[0]) - 1 - i) %
+                       (sizeof(notifications) / sizeof(notifications[0]));
+        Notification *note = &notifications[index];
+        gfx_liquid_glass_rect(x + 22, note_y, width - 44, 30, 12);
+        gfx_fill_round_rect_alpha(x + 22, note_y, width - 44, 30, 12, note->unread ? RGB(230, 240, 255) : RGB(255, 255, 255), 58);
+        gfx_draw_text(x + 34, note_y + 8, note->title, theme->text, 1);
+        gfx_draw_text(x + 126, note_y + 8, note->body, RGB(82, 94, 104), 1);
+        note_y += 34;
+    }
+    if (max_notes == 0) {
+        gfx_draw_text(x + 34, y + 220, "No notifications yet.", RGB(82, 94, 104), 1);
+    }
+
+    gfx_fill_round_rect_alpha(x + 22, y + height - 48, 112, 34, 12, RGB(232, 238, 246), 240);
+    gfx_draw_text(x + 50, y + height - 36, "Restart", RGB(35, 50, 58), 1);
+    gfx_fill_round_rect_alpha(x + 146, y + height - 48, 132, 34, 12, RGB(248, 220, 224), 240);
+    gfx_draw_text(x + 178, y + height - 36, "Shutdown", RGB(92, 30, 40), 1);
+}
+
+static void draw_notifications(void) {
+    if (notification_count == 0) {
+        return;
+    }
+
+    size_t index = (notification_head + sizeof(notifications) / sizeof(notifications[0]) - 1) %
+                   (sizeof(notifications) / sizeof(notifications[0]));
+    Notification *note = &notifications[index];
+    if (!note->unread) {
+        return;
+    }
+
+    i32 width = 330;
+    i32 height = 68;
+    i32 x = (i32)gfx_width() - width - 28;
+    i32 y = (i32)gfx_height() - height - 28;
+    draw_glass_panel(x, y, width, height, 18);
+    gfx_fill_round_rect_alpha(x + 12, y + 12, 42, 42, 14, themes[current_theme].accent, 150);
+    gfx_draw_text(x + 66, y + 16, note->title, themes[current_theme].text, 1);
+    gfx_draw_text(x + 66, y + 36, note->body, RGB(82, 94, 104), 1);
+}
+
+static void draw_desktop_context_menu(void) {
+    if (!context_menu_open) {
+        return;
+    }
+
+    i32 x = context_menu_x;
+    i32 y = context_menu_y;
+    if (x + 156 > (i32)gfx_width()) {
+        x = (i32)gfx_width() - 156;
+    }
+    if (y + 116 > (i32)gfx_height()) {
+        y = (i32)gfx_height() - 116;
+    }
+
+    draw_glass_panel(x, y, 156, 116, 16);
+    gfx_draw_text(x + 16, y + 12, "Launch Apps", RGB(35, 43, 52), 1);
+    gfx_draw_text(x + 16, y + 40, "Open Files", RGB(35, 43, 52), 1);
+    gfx_draw_text(x + 16, y + 68, "Settings", RGB(35, 43, 52), 1);
+    gfx_draw_text(x + 16, y + 96, "New File", RGB(35, 43, 52), 1);
 }
 
 static void draw_window(WindowKind kind) {
     Window *window = &windows[kind];
-    if (!window->open) {
+    if (!window->open || window->minimized) {
         return;
     }
 
@@ -1484,24 +1790,24 @@ void ui_init(const BootInfo *boot) {
     gfx_prepare_wallpaper_rgb565(background_image_rgb565, BACKGROUND_IMAGE_WIDTH, BACKGROUND_IMAGE_HEIGHT);
     load_theme_setting();
 
-    windows[WINDOW_TERMINAL] = (Window){ 90, 160, 720, 410, "Terminal", false, false };
-    windows[WINDOW_BROWSER] = (Window){ 180, 180, 820, 500, "Liqueia", false, false };
-    windows[WINDOW_FILES] = (Window){ 320, 260, 660, 400, "Files", false, false };
-    windows[WINDOW_STORE] = (Window){ 240, 170, 720, 430, "Store", false, false };
-    windows[WINDOW_SETTINGS] = (Window){ 280, 210, 660, 390, "System Settings", false, false };
-    windows[WINDOW_LAUNCHER] = (Window){ 260, 150, 600, 410, "Launch Apps", false, false };
-    windows[WINDOW_APP_VIEW] = (Window){ 300, 190, 620, 390, "App", false, false };
-    windows[WINDOW_CONTROL_CENTER] = (Window){ screen_w - 380, taskbar_y() + taskbar_h() + 16, 340, 300, "Control Center", false, false };
+    windows[WINDOW_TERMINAL] = make_window(90, 160, 720, 410, "Terminal");
+    windows[WINDOW_BROWSER] = make_window(180, 180, 820, 500, "Liqueia");
+    windows[WINDOW_FILES] = make_window(320, 260, 660, 400, "Files");
+    windows[WINDOW_STORE] = make_window(240, 170, 720, 430, "Store");
+    windows[WINDOW_SETTINGS] = make_window(280, 210, 660, 390, "System Settings");
+    windows[WINDOW_LAUNCHER] = make_window(260, 150, 600, 410, "Launch Apps");
+    windows[WINDOW_APP_VIEW] = make_window(300, 190, 620, 390, "App");
+    windows[WINDOW_CONTROL_CENTER] = make_window(screen_w - 380, taskbar_y() + taskbar_h() + 16, 340, 300, "Control Center");
 
     if (screen_w < 800) {
-        windows[WINDOW_TERMINAL] = (Window){ 25, 100, screen_w - 50, 310, "Terminal", false, false };
-        windows[WINDOW_BROWSER] = (Window){ 40, 120, screen_w - 80, 320, "Liqueia", false, false };
-        windows[WINDOW_FILES] = (Window){ 55, 140, screen_w - 110, 270, "Files", false, false };
-        windows[WINDOW_STORE] = (Window){ 35, 110, screen_w - 70, 330, "Store", false, false };
-        windows[WINDOW_SETTINGS] = (Window){ 45, 130, screen_w - 90, 330, "System Settings", false, false };
-        windows[WINDOW_LAUNCHER] = (Window){ 30, 105, screen_w - 60, 330, "Launch Apps", false, false };
-        windows[WINDOW_APP_VIEW] = (Window){ 50, 125, screen_w - 100, 315, "App", false, false };
-        windows[WINDOW_CONTROL_CENTER] = (Window){ 35, 105, screen_w - 70, 300, "Control Center", false, false };
+        windows[WINDOW_TERMINAL] = make_window(25, 100, screen_w - 50, 310, "Terminal");
+        windows[WINDOW_BROWSER] = make_window(40, 120, screen_w - 80, 320, "Liqueia");
+        windows[WINDOW_FILES] = make_window(55, 140, screen_w - 110, 270, "Files");
+        windows[WINDOW_STORE] = make_window(35, 110, screen_w - 70, 330, "Store");
+        windows[WINDOW_SETTINGS] = make_window(45, 130, screen_w - 90, 330, "System Settings");
+        windows[WINDOW_LAUNCHER] = make_window(30, 105, screen_w - 60, 330, "Launch Apps");
+        windows[WINDOW_APP_VIEW] = make_window(50, 125, screen_w - 100, 315, "App");
+        windows[WINDOW_CONTROL_CENTER] = make_window(35, 105, screen_w - 70, 300, "Control Center");
     }
 
     clamp_window(&windows[WINDOW_TERMINAL]);
@@ -1512,6 +1818,12 @@ void ui_init(const BootInfo *boot) {
     clamp_window(&windows[WINDOW_LAUNCHER]);
     clamp_window(&windows[WINDOW_APP_VIEW]);
     clamp_window(&windows[WINDOW_CONTROL_CENTER]);
+    for (i32 i = 0; i < WINDOW_COUNT; i++) {
+        windows[i].restore_x = windows[i].x;
+        windows[i].restore_y = windows[i].y;
+        windows[i].restore_width = windows[i].width;
+        windows[i].restore_height = windows[i].height;
+    }
 
     z_order[0] = WINDOW_TERMINAL;
     z_order[1] = WINDOW_FILES;
@@ -1579,6 +1891,28 @@ void ui_handle_event(const InputEvent *event) {
     }
 
     bool left_now = event->left_down;
+    bool right_now = event->right_down;
+
+    if (right_now && !previous_right &&
+        !point_in_rect(mouse_x, mouse_y, taskbar_x(), taskbar_y(), taskbar_w(), taskbar_h()) &&
+        !point_in_open_window(mouse_x, mouse_y)) {
+        context_menu_x = mouse_x;
+        context_menu_y = mouse_y;
+        if (context_menu_x + 156 > (i32)gfx_width()) {
+            context_menu_x = (i32)gfx_width() - 156;
+        }
+        if (context_menu_y + 116 > (i32)gfx_height()) {
+            context_menu_y = (i32)gfx_height() - 116;
+        }
+        if (context_menu_x < 0) {
+            context_menu_x = 0;
+        }
+        if (context_menu_y < 0) {
+            context_menu_y = 0;
+        }
+        context_menu_open = true;
+        mark_dirty_full();
+    }
 
     if (dragging && left_now && mouse_moved) {
         Window *window = &windows[dragged_window];
@@ -1615,6 +1949,16 @@ void ui_handle_event(const InputEvent *event) {
     }
 
     if (left_now && !previous_left) {
+        if (context_menu_open && point_in_rect(mouse_x, mouse_y, context_menu_x, context_menu_y, 156, 116)) {
+            handle_desktop_click();
+            previous_left = left_now;
+            previous_right = right_now;
+            return;
+        }
+        if (context_menu_open) {
+            context_menu_open = false;
+            mark_dirty_full();
+        }
         if (point_in_rect(mouse_x, mouse_y, taskbar_x(), taskbar_y(), taskbar_w(), taskbar_h())) {
             handle_taskbar_click();
             mark_dirty_taskbar();
@@ -1638,6 +1982,7 @@ void ui_handle_event(const InputEvent *event) {
     }
 
     previous_left = left_now;
+    previous_right = right_now;
 }
 
 void ui_update(u64 tick_count) {
@@ -1650,6 +1995,16 @@ void ui_update(u64 tick_count) {
         last_clock_tick = tick_count;
         if (strcmp(old_clock, clock_text) != 0 || strcmp(old_date, date_text) != 0) {
             mark_dirty_taskbar();
+        }
+    }
+
+    for (size_t i = 0; i < notification_count; i++) {
+        size_t index = (notification_head + sizeof(notifications) / sizeof(notifications[0]) - notification_count + i) %
+                       (sizeof(notifications) / sizeof(notifications[0]));
+        Notification *note = &notifications[index];
+        if (note->unread && tick_count - note->created_tick > 420) {
+            note->unread = false;
+            mark_dirty_full();
         }
     }
 }
@@ -1672,7 +2027,9 @@ void ui_render(void) {
             draw_window(z_order[i]);
         }
 
+        draw_desktop_context_menu();
         draw_taskbar();
+        draw_notifications();
         gfx_clear_clip();
         gfx_present_rect(present_x, present_y, present_w, present_h);
         gfx_present_cursor(mouse_x, mouse_y, mouse_x, mouse_y);

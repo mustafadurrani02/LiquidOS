@@ -24,6 +24,8 @@ i32 fs_find_index(const char *name);
 bool fs_create(const char *name);
 bool fs_write(const char *name, const char *contents);
 bool fs_write_bytes(const char *name, const u8 *contents, size_t size);
+bool fs_copy(const char *source, const char *dest);
+bool fs_rename(const char *old_name, const char *new_name);
 bool fs_delete(const char *name);
 
 #endif

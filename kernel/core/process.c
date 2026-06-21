@@ -110,6 +110,20 @@ bool process_crash_current(u64 vector, u64 error_code, u64 rip, u64 fault_addres
     return true;
 }
 
+bool process_kill(u32 pid, i32 code) {
+    Process *process = process_get_by_pid(pid);
+    if (!process || process->mode == PROCESS_KERNEL || process->state == PROCESS_STOPPED || process->state == PROCESS_CRASHED) {
+        return false;
+    }
+
+    process->state = PROCESS_STOPPED;
+    process->exit_code = code;
+    if (process_current() == process) {
+        process_set_current(1);
+    }
+    return true;
+}
+
 i32 process_open_current(const char *path) {
     Process *process = process_current();
     if (!process || !path || !fs_find(path)) {

@@ -80,6 +80,7 @@ bool process_exit_current(i32 code);
 bool process_yield_current(void);
 bool process_preempt_current(void);
 bool process_crash_current(u64 vector, u64 error_code, u64 rip, u64 fault_address);
+bool process_kill(u32 pid, i32 code);
 i32 process_open_current(const char *path);
 i64 process_read_current(i32 fd, void *buffer, size_t buffer_size);
 i64 process_write_current(i32 fd, const char *contents);

@@ -43,6 +43,24 @@ static void vga_text_fallback(const char *message) {
     }
 }
 
+static void log_framebuffer_mode(const Framebuffer *fb) {
+    char width[24];
+    char height[24];
+    char bpp[24];
+
+    u64_to_dec(fb->width, width, sizeof(width));
+    u64_to_dec(fb->height, height, sizeof(height));
+    u64_to_dec(fb->bpp, bpp, sizeof(bpp));
+
+    serial_write("Framebuffer: ");
+    serial_write(width);
+    serial_write("x");
+    serial_write(height);
+    serial_write("x");
+    serial_write(bpp);
+    serial_write_line("");
+}
+
 void kernel_main(const BootInfo *boot) {
     serial_init();
     serial_write_line("LiquidOS kernel entered long mode");
@@ -77,6 +95,7 @@ void kernel_main(const BootInfo *boot) {
             cpu_pause();
         }
     }
+    log_framebuffer_mode(framebuffer_get());
 
     ps2_init();
 

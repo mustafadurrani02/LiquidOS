@@ -164,6 +164,14 @@ chmod +x scripts/build-macos.sh scripts/run-qemu.sh
 ./scripts/run-qemu.sh
 ```
 
+The QEMU launcher disables Cocoa `zoom-to-fit` by default. That keeps the guest
+framebuffer at native pixels instead of scaling it into a blurry window. If you
+want a different QEMU display mode, override it explicitly:
+
+```bash
+LIQUIDOS_QEMU_DISPLAY="cocoa,zoom-to-fit=off" ./scripts/run-qemu.sh
+```
+
 To build without starting the emulator:
 
 ```bash
@@ -324,6 +332,8 @@ Use these if you create the VM by hand:
 - Hard disk: none required
 - Graphics controller: `VBoxVGA`
 - Video memory: `64 MB`
+- Custom video modes: `1920x1080x32`, `1680x1050x32`, `1440x900x32`,
+  `1280x800x32`
 - 3D acceleration: disabled
 - Pointing device: `PS/2 Mouse`
 - USB: disabled

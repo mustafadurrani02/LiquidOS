@@ -8,6 +8,8 @@ serial_log="$root/build/serial.log"
 qemu="${LIQUIDOS_QEMU:-$(command -v qemu-system-x86_64 || true)}"
 qemu_vga="${LIQUIDOS_QEMU_VGA:-std}"
 qemu_display="${LIQUIDOS_QEMU_DISPLAY:-cocoa,zoom-to-fit=off}"
+qemu_netdev="${LIQUIDOS_QEMU_NETDEV:-user,id=net0}"
+qemu_net_device="${LIQUIDOS_QEMU_NET_DEVICE:-rtl8139,netdev=net0}"
 
 if [[ "${1:-}" != "--no-build" ]]; then
     "$root/scripts/build-macos.sh"
@@ -34,5 +36,6 @@ exec "$qemu" \
     -vga "$qemu_vga" \
     -display "$qemu_display" \
     -serial "file:$serial_log" \
-    -nic none \
+    -netdev "$qemu_netdev" \
+    -device "$qemu_net_device" \
     -no-reboot

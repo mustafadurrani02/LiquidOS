@@ -89,7 +89,7 @@ static const DesktopTheme themes[] = {
 static const DockApp dock_apps[] = {
     { WINDOW_BROWSER, "BROWSER", app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT, RGB(70, 52, 20), RGB(2, 2, 8), true },
     { WINDOW_FILES, "FILES", app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT, RGB(238, 145, 255), RGB(116, 62, 218), true },
-    { WINDOW_TERMINAL, "TERMINAL", app_icon_terminal_argb, APP_ICON_TERMINAL_WIDTH, APP_ICON_TERMINAL_HEIGHT, RGB(38, 42, 75), RGB(8, 9, 22), false },
+    { WINDOW_TERMINAL, "TERMINAL", app_icon_terminal_argb, APP_ICON_TERMINAL_WIDTH, APP_ICON_TERMINAL_HEIGHT, RGB(38, 42, 75), RGB(8, 9, 22), true },
     { WINDOW_SETTINGS, "SETTINGS", app_icon_settings_argb, APP_ICON_SETTINGS_WIDTH, APP_ICON_SETTINGS_HEIGHT, RGB(104, 130, 164), RGB(54, 61, 78), false },
 };
 
@@ -1013,13 +1013,18 @@ static void draw_flat_icon_tile(i32 x, i32 y, i32 size, i32 radius, Color top, C
 }
 
 static void draw_dock_icon_asset(i32 x, i32 y, i32 tile_size, i32 radius, i32 image_size,
-                                 const u32 *pixels, u32 src_w, u32 src_h, Color top, Color bottom) {
+                                 const u32 *pixels, u32 src_w, u32 src_h, Color top, Color bottom,
+                                 bool image_is_tile) {
     i32 image_x = x + (tile_size - image_size) / 2;
     i32 image_y = y + (tile_size - image_size) / 2;
     gfx_blur_round_rect(x, y, tile_size, tile_size, radius);
     gfx_refract_round_rect_edges(x, y, tile_size, tile_size, radius, 1);
-    draw_flat_icon_tile(x, y, tile_size, radius, top, bottom);
-    gfx_draw_argb8888_image_scaled(image_x, image_y, image_size, image_size, pixels, src_w, src_h);
+    if (image_is_tile) {
+        gfx_draw_argb8888_image_scaled_round(x, y, tile_size, tile_size, radius, pixels, src_w, src_h);
+    } else {
+        draw_flat_icon_tile(x, y, tile_size, radius, top, bottom);
+        gfx_draw_argb8888_image_scaled(image_x, image_y, image_size, image_size, pixels, src_w, src_h);
+    }
     gfx_draw_round_rect_alpha(x, y, tile_size, tile_size, radius, RGB(247, 252, 255), 43);
 }
 
@@ -1457,7 +1462,7 @@ static void draw_taskbar(void) {
         draw_dock_icon_asset(bar.slot_x + i * bar.slot_step, bar.slot_y,
                              tile_size, child_radius, icon_size,
                              app->pixels, app->icon_width, app->icon_height,
-                             app->tile_top, app->tile_bottom);
+                             app->tile_top, app->tile_bottom, app->small_artwork);
     }
     if (dock_grip_visible || dock_resizing || hover_zone == 0 || hover_zone == 2) {
         draw_dock_resize_grip(&bar);

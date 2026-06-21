@@ -581,6 +581,38 @@ void gfx_draw_argb8888_image_scaled(i32 x, i32 y, i32 width, i32 height, const u
     }
 }
 
+void gfx_draw_argb8888_image_scaled_round(i32 x, i32 y, i32 width, i32 height, i32 radius,
+                                          const u32 *pixels, u32 src_width, u32 src_height) {
+    if (!pixels || width <= 0 || height <= 0 || src_width == 0 || src_height == 0) {
+        return;
+    }
+
+    for (i32 py = 0; py < height; py++) {
+        u32 sy = ((u32)py * src_height) / (u32)height;
+        for (i32 px = 0; px < width; px++) {
+            u8 coverage = round_rect_coverage(x + px, y + py, x, y, width, height, radius);
+            if (coverage == 0) {
+                continue;
+            }
+
+            u32 sx = ((u32)px * src_width) / (u32)width;
+            u32 packed = pixels[sy * src_width + sx];
+            u8 alpha = (u8)(packed >> 24);
+            if (alpha == 0) {
+                continue;
+            }
+
+            alpha = (u8)(((u32)alpha * coverage) / 255);
+            Color color = RGB((packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF);
+            if (alpha == 255) {
+                put_pixel(x + px, y + py, color);
+            } else {
+                put_pixel(x + px, y + py, blend(get_pixel(x + px, y + py), color, alpha));
+            }
+        }
+    }
+}
+
 void gfx_prepare_wallpaper_rgb565(const u16 *pixels, u32 src_width, u32 src_height) {
     if (!gfx_ready || !pixels || src_width == 0 || src_height == 0) {
         return;

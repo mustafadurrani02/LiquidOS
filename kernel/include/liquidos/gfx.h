@@ -24,6 +24,7 @@ void gfx_fill_round_rect(i32 x, i32 y, i32 width, i32 height, i32 radius, Color 
 void gfx_fill_round_rect_plain_alpha(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color, u8 alpha);
 void gfx_fill_round_rect_alpha(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color, u8 alpha);
 void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius);
+void gfx_liquid_glass_grip(i32 x, i32 y, i32 width, i32 height);
 void gfx_blur_round_rect(i32 x, i32 y, i32 width, i32 height, i32 radius);
 void gfx_refract_round_rect_edges(i32 x, i32 y, i32 width, i32 height, i32 radius, i32 strength);
 void gfx_draw_round_rect_alpha(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color, u8 alpha);

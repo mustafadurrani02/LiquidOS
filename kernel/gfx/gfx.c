@@ -446,6 +446,125 @@ void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
     }
 }
 
+static i64 dist2_to_segment(i32 px, i32 py, i32 x0, i32 y0, i32 x1, i32 y1) {
+    i64 vx = x1 - x0;
+    i64 vy = y1 - y0;
+    i64 wx = px - x0;
+    i64 wy = py - y0;
+    i64 len2 = vx * vx + vy * vy;
+    if (len2 <= 0) {
+        i64 dx = px - x0;
+        i64 dy = py - y0;
+        return dx * dx + dy * dy;
+    }
+
+    i64 dot = wx * vx + wy * vy;
+    if (dot <= 0) {
+        i64 dx = px - x0;
+        i64 dy = py - y0;
+        return dx * dx + dy * dy;
+    }
+    if (dot >= len2) {
+        i64 dx = px - x1;
+        i64 dy = py - y1;
+        return dx * dx + dy * dy;
+    }
+
+    i32 cx = x0 + (i32)((vx * dot + len2 / 2) / len2);
+    i32 cy = y0 + (i32)((vy * dot + len2 / 2) / len2);
+    i64 dx = px - cx;
+    i64 dy = py - cy;
+    return dx * dx + dy * dy;
+}
+
+static u8 grip_path_coverage(i32 px, i32 py, i32 x, i32 y, i32 width, i32 height, i32 radius) {
+    if (radius <= 0 || px < x || py < y || px >= x + width || py >= y + height) {
+        return 0;
+    }
+
+    i32 x0 = x + (width * 18) / 100;
+    i32 y0 = y + (height * 72) / 100;
+    i32 x1 = x + (width * 45) / 100;
+    i32 y1 = y + (height * 68) / 100;
+    i32 x2 = x + (width * 82) / 100;
+    i32 y2 = y + (height * 28) / 100;
+
+    i64 d0 = dist2_to_segment(px, py, x0, y0, x1, y1);
+    i64 d1 = dist2_to_segment(px, py, x1, y1, x2, y2);
+    i64 dist2 = d0 < d1 ? d0 : d1;
+    i64 inner = (i64)(radius - 1) * (radius - 1);
+    i64 outer = (i64)radius * radius;
+    i64 span = outer - inner;
+    if (dist2 <= inner) {
+        return 255;
+    }
+    if (dist2 > outer || span <= 0) {
+        return 0;
+    }
+    return (u8)(((outer - dist2) * 255) / span);
+}
+
+void gfx_liquid_glass_grip(i32 x, i32 y, i32 width, i32 height) {
+    if (!gfx_ready || width <= 0 || height <= 0) {
+        return;
+    }
+
+    i32 radius = (height * 31) / 100;
+    if (radius < 3) {
+        radius = 3;
+    }
+
+    for (i32 py = y; py < y + height; py++) {
+        for (i32 px = x; px < x + width; px++) {
+            u8 coverage = grip_path_coverage(px, py, x, y, width, height, radius);
+            if (!coverage) {
+                continue;
+            }
+
+            u32 r = 0;
+            u32 g = 0;
+            u32 b = 0;
+            u32 count = 0;
+            for (i32 oy = -2; oy <= 2; oy++) {
+                for (i32 ox = -2; ox <= 2; ox++) {
+                    Color c = get_pixel(px + ox, py + oy);
+                    r += (c >> 16) & 0xFF;
+                    g += (c >> 8) & 0xFF;
+                    b += c & 0xFF;
+                    count++;
+                }
+            }
+
+            Color blurred = RGB(r / count, g / count, b / count);
+            put_pixel(px, py, blend(get_pixel(px, py), blurred, (u8)((92 * coverage) / 255)));
+        }
+    }
+
+    for (i32 py = y; py < y + height; py++) {
+        for (i32 px = x; px < x + width; px++) {
+            u8 coverage = grip_path_coverage(px, py, x, y, width, height, radius);
+            if (!coverage) {
+                continue;
+            }
+
+            u8 inner = grip_path_coverage(px, py, x, y, width, height, radius - 2);
+            i32 local_y = py - y;
+            u32 amount = height > 1 ? (u32)((local_y * 65536) / (height - 1)) : 0;
+            Color tint = lerp_color(RGB(232, 246, 255), RGB(126, 156, 190), amount);
+            put_pixel(px, py, blend(get_pixel(px, py), tint, (u8)((18 * coverage) / 255)));
+
+            if (inner < coverage) {
+                i32 dx = px < x + width / 2 ? -1 : 1;
+                i32 dy = py < y + height / 2 ? -1 : 1;
+                Color refracted = get_pixel(px + dx, py + dy);
+                u8 edge = (u8)(coverage - inner);
+                put_pixel(px, py, blend(get_pixel(px, py), refracted, (u8)((54 * edge) / 255)));
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(245, 252, 255), (u8)((68 * edge) / 255)));
+            }
+        }
+    }
+}
+
 void gfx_blur_round_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
     for (i32 py = y; py < y + height; py++) {
         for (i32 px = x; px < x + width; px++) {

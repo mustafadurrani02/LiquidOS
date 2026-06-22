@@ -1309,25 +1309,13 @@ static void draw_dock_resize_grip(const TaskbarLayout *bar) {
     i32 grip_y;
     i32 grip_size;
     dock_grip_rect(bar, &grip_x, &grip_y, &grip_size);
-    i32 compact = gfx_width() < 900 ? 1 : 0;
-    i32 dock_radius = dock_scale_value(compact ? 27 : 32);
-    i32 radius = dock_child_radius(grip_size, bar->h, dock_radius);
-    if (radius < 6) {
-        radius = 6;
-    }
-
-    gfx_blur_round_rect(grip_x, grip_y, grip_size, grip_size, radius);
-    gfx_refract_round_rect_edges(grip_x, grip_y, grip_size, grip_size, radius, 1);
-    gfx_fill_round_rect_plain_alpha(grip_x, grip_y, grip_size, grip_size, radius, RGB(210, 232, 255), 12);
-    gfx_draw_round_rect_alpha(grip_x, grip_y, grip_size, grip_size, radius, RGB(246, 252, 255), 58);
-
-    i32 inset = dock_scale_value(4);
-    i32 inner = grip_size - inset - 1;
-    Color edge = RGB(232, 240, 250);
-    gfx_draw_line(grip_x + inner - dock_scale_value(7), grip_y + inner,
-                  grip_x + inner, grip_y + inner - dock_scale_value(7), edge);
-    gfx_draw_line(grip_x + inner - dock_scale_value(4), grip_y + inner,
-                  grip_x + inner, grip_y + inner - dock_scale_value(4), RGB(185, 204, 224));
+    i32 grip_w = grip_size + dock_scale_value(9);
+    i32 grip_h = grip_size;
+    i32 draw_x = bar->x + bar->w - grip_w - dock_scale_value(2);
+    i32 draw_y = bar->y + bar->h - grip_h - dock_scale_value(2);
+    (void)grip_x;
+    (void)grip_y;
+    gfx_liquid_glass_grip(draw_x, draw_y, grip_w, grip_h);
 }
 
 static void draw_window_frame(const Window *window, bool focused) {

@@ -504,14 +504,16 @@ static u8 grip_path_coverage(i32 px, i32 py, i32 x, i32 y, i32 width, i32 height
     return (u8)(((outer - dist2) * 255) / span);
 }
 
-void gfx_liquid_glass_grip(i32 x, i32 y, i32 width, i32 height) {
+void gfx_liquid_glass_grip(i32 x, i32 y, i32 width, i32 height, i32 radius) {
     if (!gfx_ready || width <= 0 || height <= 0) {
         return;
     }
 
-    i32 radius = (height * 31) / 100;
     if (radius < 3) {
         radius = 3;
+    }
+    if (radius > height / 2) {
+        radius = height / 2;
     }
 
     for (i32 py = y; py < y + height; py++) {

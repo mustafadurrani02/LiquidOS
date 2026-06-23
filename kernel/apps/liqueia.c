@@ -725,6 +725,26 @@ static void draw_offline(i32 x, i32 y, i32 width, i32 height) {
     draw_text_trimmed(x + 52, y + 248, tab->address, 58, RGB(216, 170, 88));
     gfx_draw_text(x + 52, y + 286, fetched.message, RGB(205, 205, 212), 1);
     gfx_draw_text(x + 52, y + 307, "Run through scripts/run-qemu.sh for RTL8139 DNS/TCP/HTTP networking.", RGB(136, 137, 146), 1);
+
+    const char *line = tab->display_text;
+    i32 row = 0;
+    while (*line && row < 4) {
+        char text[72];
+        size_t used = 0;
+        while (line[used] && line[used] != '\n' && used + 1 < sizeof(text)) {
+            text[used] = line[used];
+            used++;
+        }
+        text[used] = 0;
+        if (text[0]) {
+            gfx_draw_text(x + 52, y + 340 + row * 22, text, RGB(184, 184, 192), 1);
+            row++;
+        }
+        line += used;
+        if (*line == '\n') {
+            line++;
+        }
+    }
 }
 
 static void draw_web_page(i32 x, i32 y, i32 width, i32 height) {

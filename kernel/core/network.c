@@ -247,6 +247,37 @@ static bool header_contains_token(const char *headers, const char *name, const c
     return false;
 }
 
+static bool copy_header_value(const char *headers, const char *name, char *out, size_t out_size) {
+    if (!headers || !name || !out || out_size == 0) {
+        return false;
+    }
+    out[0] = 0;
+    const char *line = headers;
+    while (*line) {
+        const char *line_end = line;
+        while (*line_end && !(line_end[0] == '\r' && line_end[1] == '\n')) {
+            line_end++;
+        }
+        if (starts_with_ci(line, name)) {
+            const char *value = line + strlen(name);
+            while (value < line_end && (*value == ' ' || *value == '\t')) {
+                value++;
+            }
+            size_t used = 0;
+            while (value < line_end && used + 1 < out_size) {
+                out[used++] = *value++;
+            }
+            out[used] = 0;
+            return used > 0;
+        }
+        if (!*line_end) {
+            return false;
+        }
+        line = line_end + 2;
+    }
+    return false;
+}
+
 static i32 hex_value(char ch) {
     if (ch >= '0' && ch <= '9') {
         return ch - '0';
@@ -1103,7 +1134,16 @@ bool network_ping(const char *host) {
     return rtl_present && dns_resolve(host, ip);
 }
 
-NetResponse network_fetch(const char *url) {
+static NetResponse https_required_response(const char *location) {
+    http_body[0] = 0;
+    append_text(http_body, sizeof(http_body), "The website responded, but it redirects to HTTPS.\n");
+    append_text(http_body, sizeof(http_body), "Redirect target: ");
+    append_text(http_body, sizeof(http_body), location && location[0] ? location : "https://");
+    append_text(http_body, sizeof(http_body), "\nLiquidOS can fetch plain HTTP today. Full YouTube/modern web support needs TLS, JavaScript, and media playback.");
+    return response(false, 501, "text/plain", http_body, "https redirect");
+}
+
+static NetResponse network_fetch_internal(const char *url, u8 redirects_left) {
     if (!url || !url[0]) {
         return response(false, 400, "text/plain", "Bad request", "empty url");
     }
@@ -1139,6 +1179,23 @@ NetResponse network_fetch(const char *url) {
         return response(false, 504, "text/plain", "HTTP request timed out.", "http timeout");
     }
 
+    if (status >= 300 && status < 400) {
+        char location[NET_URL_LENGTH];
+        if (copy_header_value(http_raw, "Location:", location, sizeof(location))) {
+            if (starts_with(location, "https://")) {
+                return https_required_response(location);
+            }
+            if (starts_with(location, "http://") && redirects_left > 0) {
+                return network_fetch_internal(location, (u8)(redirects_left - 1));
+            }
+
+            http_body[0] = 0;
+            append_text(http_body, sizeof(http_body), "The website redirected to an unsupported location:\n");
+            append_text(http_body, sizeof(http_body), location);
+            return response(false, status, "text/plain", http_body, "redirect unsupported");
+        }
+    }
+
     char message[64];
     message[0] = 0;
     append_text(message, sizeof(message), "http ");
@@ -1146,6 +1203,10 @@ NetResponse network_fetch(const char *url) {
     u64_to_dec(status, status_text, sizeof(status_text));
     append_text(message, sizeof(message), status_text);
     return response(status >= 200 && status < 400, status, http_mime, http_body, message);
+}
+
+NetResponse network_fetch(const char *url) {
+    return network_fetch_internal(url, 2);
 }
 
 bool network_download_to_file(const char *url, const char *path) {

@@ -1309,13 +1309,16 @@ static void draw_dock_resize_grip(const TaskbarLayout *bar) {
     i32 grip_y;
     i32 grip_size;
     dock_grip_rect(bar, &grip_x, &grip_y, &grip_size);
+    i32 compact = gfx_width() < 900 ? 1 : 0;
+    i32 dock_radius = dock_scale_value(compact ? 27 : 32);
     i32 grip_w = grip_size + dock_scale_value(9);
     i32 grip_h = grip_size;
+    i32 grip_radius = dock_child_radius(grip_h, bar->h, dock_radius);
     i32 draw_x = bar->x + bar->w - grip_w - dock_scale_value(2);
     i32 draw_y = bar->y + bar->h - grip_h - dock_scale_value(2);
     (void)grip_x;
     (void)grip_y;
-    gfx_liquid_glass_grip(draw_x, draw_y, grip_w, grip_h);
+    gfx_liquid_glass_grip(draw_x, draw_y, grip_w, grip_h, grip_radius);
 }
 
 static void draw_window_frame(const Window *window, bool focused) {

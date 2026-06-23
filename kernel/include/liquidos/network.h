@@ -3,7 +3,7 @@
 
 #include <liquidos/types.h>
 
-#define NET_URL_LENGTH 192
+#define NET_URL_LENGTH 384
 #define NET_HOST_LENGTH 40
 
 typedef struct NetInfo {

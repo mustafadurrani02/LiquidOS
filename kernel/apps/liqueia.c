@@ -5,7 +5,7 @@
 
 #define LIQUEIA_MAX_TABS 3
 #define LIQUEIA_MAX_HISTORY 6
-#define LIQUEIA_URL_LENGTH 192
+#define LIQUEIA_URL_LENGTH 384
 #define LIQUEIA_BODY_LENGTH 8192
 #define LIQUEIA_TEXT_LENGTH 3072
 #define LIQUEIA_MIME_LENGTH 48
@@ -159,7 +159,7 @@ static void append_url_encoded(char *dest, size_t dest_size, const char *text) {
 
 static void build_google_search_url(const char *query, char *out, size_t out_size) {
     out[0] = 0;
-    append_text(out, out_size, "http://suggestqueries.google.com/complete/search?client=firefox&q=");
+    append_text(out, out_size, "https://www.google.com/search?q=");
     append_url_encoded(out, out_size, query);
 }
 
@@ -186,7 +186,13 @@ static void normalize_address_input(const char *input, char *out, size_t out_siz
                            starts_with_ci(trimmed, "store.liquidos.local");
     if (!has_space && looks_like_host) {
         out[0] = 0;
-        append_text(out, out_size, "http://");
+        if (starts_with_ci(trimmed, "liquidos.local") ||
+            starts_with_ci(trimmed, "store.liquidos.local") ||
+            starts_with_ci(trimmed, "10.0.2.")) {
+            append_text(out, out_size, "http://");
+        } else {
+            append_text(out, out_size, "https://");
+        }
         append_text(out, out_size, trimmed);
         return;
     }
@@ -779,7 +785,7 @@ static void draw_youtube_card(i32 x, i32 y, i32 width, const char *title, const 
 }
 
 static void draw_youtube_page(i32 x, i32 y, i32 width, i32 height) {
-    (void)height;
+    LiqueiaTab *tab = &tabs[active_tab];
     i32 panel_x = x + 24;
     i32 panel_y = y + 152;
     i32 panel_w = width - 48;
@@ -796,6 +802,49 @@ static void draw_youtube_page(i32 x, i32 y, i32 width, i32 height) {
     gfx_draw_text(panel_x + 96, panel_y + 84, "Shorts", RGB(171, 172, 182), 1);
     gfx_draw_text(panel_x + 178, panel_y + 84, "Subscriptions", RGB(171, 172, 182), 1);
     gfx_draw_text(panel_x + 312, panel_y + 84, "Music", RGB(171, 172, 182), 1);
+
+    if (tab->display_text[0]) {
+        const char *line = tab->display_text;
+        i32 row = 0;
+        i32 card_w = (panel_w - 76) / 3;
+        if (card_w < 150) {
+            card_w = (panel_w - 60) / 2;
+        }
+        while (*line && row < 8) {
+            char text[72];
+            size_t used = 0;
+            while (line[used] && line[used] != '\n' && used + 1 < sizeof(text)) {
+                text[used] = line[used];
+                used++;
+            }
+            text[used] = 0;
+            if (text[0] &&
+                !starts_with_ci(text, "YouTube") &&
+                !starts_with_ci(text, "Fetched live") &&
+                !starts_with_ci(text, "Page title") &&
+                !starts_with_ci(text, "Real HTTPS") &&
+                !starts_with_ci(text, "Live page items:")) {
+                i32 col = row % 3;
+                i32 card_row = row / 3;
+                if (panel_w < 590) {
+                    col = row % 2;
+                    card_row = row / 2;
+                }
+                draw_youtube_card(panel_x + 22 + col * (card_w + 16),
+                                  panel_y + 116 + card_row * 158,
+                                  card_w, text[0] == '-' ? text + 2 : text,
+                                  "Live from YouTube", row % 2 ? RGB(153, 65, 96) : RGB(88, 80, 190));
+                row++;
+            }
+            line += used;
+            if (*line == '\n') {
+                line++;
+            }
+        }
+        if (row > 0) {
+            return;
+        }
+    }
 
     i32 card_w = (panel_w - 76) / 3;
     if (card_w < 150) {

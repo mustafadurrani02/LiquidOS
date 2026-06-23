@@ -124,6 +124,7 @@ static const u8 broadcast_mac[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 static const u8 local_ip[4] = { 10, 0, 2, 15 };
 static const u8 gateway_ip[4] = { 10, 0, 2, 2 };
 static const u8 dns_ip[4] = { 10, 0, 2, 3 };
+static const u8 webbridge_ip[4] = { 10, 0, 2, 2 };
 
 static u8 rx_buffer[RX_BUFFER_SIZE] __attribute__((section(".dma"), aligned(16)));
 static u8 tx_buffers[4][TX_BUFFER_SIZE] __attribute__((section(".dma"), aligned(16)));
@@ -159,6 +160,33 @@ static void append_text(char *dest, size_t dest_size, const char *src) {
     dest[used] = 0;
 }
 
+static bool is_url_unreserved(char ch) {
+    return (ch >= 'a' && ch <= 'z') ||
+           (ch >= 'A' && ch <= 'Z') ||
+           (ch >= '0' && ch <= '9') ||
+           ch == '-' || ch == '_' || ch == '.' || ch == '~';
+}
+
+static char hex_digit(u8 value) {
+    value &= 0x0F;
+    return value < 10 ? (char)('0' + value) : (char)('A' + value - 10);
+}
+
+static void append_url_encoded(char *dest, size_t dest_size, const char *text) {
+    size_t used = strlen(dest);
+    while (*text && used + 1 < dest_size) {
+        unsigned char ch = (unsigned char)*text++;
+        if (is_url_unreserved((char)ch)) {
+            dest[used++] = (char)ch;
+        } else if (used + 3 < dest_size) {
+            dest[used++] = '%';
+            dest[used++] = hex_digit((u8)(ch >> 4));
+            dest[used++] = hex_digit((u8)ch);
+        }
+    }
+    dest[used] = 0;
+}
+
 static u16 read_be16(const u8 *data) {
     return (u16)(((u16)data[0] << 8) | data[1]);
 }
@@ -181,6 +209,10 @@ static void write_be32(u8 *data, u32 value) {
 
 static bool ip_equal(const u8 *a, const u8 *b) {
     return memcmp(a, b, 4) == 0;
+}
+
+static bool is_webbridge_ip(const u8 *ip) {
+    return ip && ip_equal(ip, webbridge_ip);
 }
 
 static u16 checksum_finish(u32 sum) {
@@ -504,7 +536,10 @@ static void handle_arp(const u8 *packet, size_t len) {
     const u8 *sender_mac = arp + 8;
     const u8 *sender_ip = arp + 14;
     const u8 *target_ip = arp + 24;
-    if (ip_equal(sender_ip, gateway_ip) && ip_equal(target_ip, local_ip)) {
+    if (!ip_equal(target_ip, local_ip)) {
+        return;
+    }
+    if (ip_equal(sender_ip, gateway_ip)) {
         memcpy(gateway_mac, sender_mac, 6);
         gateway_mac_ready = true;
     }
@@ -935,12 +970,14 @@ static bool tcp_http_get(const u8 *remote_ip, const char *host, u16 remote_port,
     u16 local_port = next_ephemeral_port++;
     u32 seq = 0x10000000U + scheduler_ticks() + local_port;
     u32 ack = 0;
+    bool bridge_request = is_webbridge_ip(remote_ip);
 
     for (u32 attempt = 0; attempt < 3; attempt++) {
         send_tcp(remote_ip, local_port, remote_port, seq, 0, TCP_SYN, NULL, 0);
         const u8 *tcp = NULL;
         size_t tcp_len = 0;
-        if (!poll_tcp(remote_ip, local_port, &tcp, &tcp_len, 450000)) {
+        const u8 *poll_ip = bridge_request ? NULL : remote_ip;
+        if (!poll_tcp(poll_ip, local_port, &tcp, &tcp_len, 450000)) {
             continue;
         }
         if ((tcp[13] & (TCP_SYN | TCP_ACK)) != (TCP_SYN | TCP_ACK) || read_be16(tcp) != remote_port) {
@@ -950,7 +987,7 @@ static bool tcp_http_get(const u8 *remote_ip, const char *host, u16 remote_port,
         seq++;
         send_tcp(remote_ip, local_port, remote_port, seq, ack, TCP_ACK, NULL, 0);
 
-        char request[512];
+        char request[1024];
         request[0] = 0;
         append_text(request, sizeof(request), "GET ");
         append_text(request, sizeof(request), path[0] ? path : "/");
@@ -972,10 +1009,11 @@ static bool tcp_http_get(const u8 *remote_ip, const char *host, u16 remote_port,
         bool headers_ready = false;
         HttpBodyStream body_stream;
         http_body[0] = 0;
-        for (u32 loops = 0; loops < 600000; loops++) {
+        u32 receive_loops = bridge_request ? 30000000 : 600000;
+        for (u32 loops = 0; loops < receive_loops; loops++) {
             tcp = NULL;
             tcp_len = 0;
-            if (!poll_tcp(remote_ip, local_port, &tcp, &tcp_len, 1)) {
+            if (!poll_tcp(poll_ip, local_port, &tcp, &tcp_len, 1)) {
                 continue;
             }
             if (read_be16(tcp) != remote_port) {
@@ -1211,8 +1249,18 @@ static NetResponse https_required_response(const char *location) {
     append_text(http_body, sizeof(http_body), "The website responded, but it redirects to HTTPS.\n");
     append_text(http_body, sizeof(http_body), "Redirect target: ");
     append_text(http_body, sizeof(http_body), location && location[0] ? location : "https://");
-    append_text(http_body, sizeof(http_body), "\nLiquidOS can fetch plain HTTP today. Full YouTube/modern web support needs TLS, JavaScript, and media playback.");
+    append_text(http_body, sizeof(http_body), "\nRun through scripts/run-qemu.sh so the LiquidOS WebBridge can fetch HTTPS for Liqueia.");
     return response(false, 501, "text/plain", http_body, "https redirect");
+}
+
+static bool build_webbridge_url(const char *target, char *out, size_t out_size) {
+    if (!target || !target[0]) {
+        return false;
+    }
+    out[0] = 0;
+    append_text(out, out_size, "http://10.0.2.2:8087/fetch?url=");
+    append_url_encoded(out, out_size, target);
+    return out[0] != 0;
 }
 
 static NetResponse network_fetch_internal(const char *url, u8 redirects_left) {
@@ -1235,11 +1283,18 @@ static NetResponse network_fetch_internal(const char *url, u8 redirects_left) {
         return response(false, 400, "text/plain", "Bad URL", "bad url");
     }
     if (parts.https) {
+        char bridge_url[NET_URL_LENGTH];
+        if (build_webbridge_url(url, bridge_url, sizeof(bridge_url))) {
+            NetResponse bridged = network_fetch_internal(bridge_url, redirects_left);
+            if (bridged.ok) {
+                return bridged;
+            }
+        }
         NetResponse compat;
         if (https_compat_response(url, &parts, &compat)) {
             return compat;
         }
-        return response(false, 501, "text/plain", "HTTPS requires TLS, which is not implemented yet.", "https/tls unavailable");
+        return response(false, 501, "text/plain", "HTTPS requires the LiquidOS WebBridge. Run through scripts/run-qemu.sh.", "webbridge unavailable");
     }
     if (!rtl_present) {
         return response(false, 503, "text/plain", "No RTL8139 NIC is available. Run QEMU with the LiquidOS network script.", "no nic");
@@ -1259,11 +1314,12 @@ static NetResponse network_fetch_internal(const char *url, u8 redirects_left) {
         char location[NET_URL_LENGTH];
         if (copy_header_value(http_raw, "Location:", location, sizeof(location))) {
             if (starts_with(location, "https://")) {
-                UrlParts redirect_parts;
-                NetResponse compat;
-                if (parse_url(location, &redirect_parts) &&
-                    https_compat_response(location, &redirect_parts, &compat)) {
-                    return compat;
+                char bridge_url[NET_URL_LENGTH];
+                if (build_webbridge_url(location, bridge_url, sizeof(bridge_url))) {
+                    NetResponse bridged = network_fetch_internal(bridge_url, redirects_left);
+                    if (bridged.ok) {
+                        return bridged;
+                    }
                 }
                 return https_required_response(location);
             }

@@ -163,8 +163,15 @@ static i32 dock_app_count(void) {
     return (i32)(sizeof(dock_apps) / sizeof(dock_apps[0]));
 }
 
+static i32 dock_scale(void) {
+    if (dock_scale_percent < 82 || dock_scale_percent > 135) {
+        dock_scale_percent = 100;
+    }
+    return dock_scale_percent;
+}
+
 static i32 dock_scale_value(i32 value) {
-    return (value * dock_scale_percent + 50) / 100;
+    return (value * dock_scale() + 50) / 100;
 }
 
 static i32 dock_tile_size(void) {
@@ -1293,8 +1300,9 @@ static void draw_dock_icon_asset(i32 x, i32 y, i32 tile_size, i32 radius, i32 im
 static void draw_dock_clock(const TaskbarLayout *bar) {
     i32 text_x = bar->clock_x + dock_scale_value(8);
     i32 text_y = bar->clock_y + (bar->clock_h - dock_scale_value(49)) / 2;
-    u32 time_scale = (u32)dock_scale_percent;
-    u32 date_scale = (u32)((dock_scale_percent * 50 + 50) / 100);
+    i32 scale = dock_scale();
+    u32 time_scale = (u32)scale;
+    u32 date_scale = (u32)((scale * 50 + 50) / 100);
     gfx_draw_text_percent(text_x, text_y, clock_text, RGB(248, 251, 255), time_scale);
     gfx_draw_text_percent(text_x, text_y + dock_scale_value(34), date_text, RGB(248, 251, 255), date_scale);
 }
@@ -1851,6 +1859,8 @@ void ui_init(const BootInfo *boot) {
     mouse_y = screen_h / 2;
     previous_mouse_x = mouse_x;
     previous_mouse_y = mouse_y;
+    dock_scale_percent = 100;
+    dock_resize_start_scale = 100;
 
     update_clock_text();
     gfx_prepare_wallpaper_rgb565(background_image_rgb565, BACKGROUND_IMAGE_WIDTH, BACKGROUND_IMAGE_HEIGHT);

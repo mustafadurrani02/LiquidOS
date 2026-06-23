@@ -30,13 +30,18 @@ fi
 
 rm -f "$serial_log"
 
-qemu_webbridge_args=()
 if [[ "${LIQUIDOS_WEBBRIDGE:-1}" != "0" ]]; then
     if command -v python3 >/dev/null 2>&1; then
         python3 "$root/scripts/webbridge.py" --host "$webbridge_host" --port "$webbridge_port" > "$root/build/webbridge.log" 2>&1 &
         webbridge_pid="$!"
-        echo "LiquidOS WebBridge listening on $webbridge_host:$webbridge_port"
-        echo "Liqueia can reach it in the guest at 10.0.2.2:$webbridge_port"
+        sleep 0.2
+        if ! kill -0 "$webbridge_pid" 2>/dev/null; then
+            echo "LiquidOS WebBridge failed to start. See $root/build/webbridge.log" >&2
+            webbridge_pid=""
+        else
+            echo "LiquidOS WebBridge listening on $webbridge_host:$webbridge_port"
+            echo "Liqueia can reach it in the guest at 10.0.2.2:$webbridge_port"
+        fi
     else
         echo "python3 not found; HTTPS WebBridge disabled" >&2
     fi
@@ -58,7 +63,6 @@ trap cleanup EXIT
     -vga "$qemu_vga" \
     -display "$qemu_display" \
     -serial "file:$serial_log" \
-    "${qemu_webbridge_args[@]}" \
     -netdev "$qemu_netdev" \
     -device "$qemu_net_device" \
     -no-reboot

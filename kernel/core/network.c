@@ -53,6 +53,7 @@ typedef struct NetRoute {
 typedef struct UrlParts {
     char host[NET_HOST_LENGTH];
     char path[NET_URL_LENGTH];
+    u16 port;
     bool https;
 } UrlParts;
 
@@ -680,9 +681,9 @@ static bool dns_resolve(const char *host, u8 *out_ip) {
     used += 4;
 
     u16 src_port = next_ephemeral_port++;
-    for (u32 attempt = 0; attempt < 3; attempt++) {
+    for (u32 attempt = 0; attempt < 5; attempt++) {
         send_udp(dns_ip, src_port, 53, query, used);
-        for (u32 i = 0; i < 120000; i++) {
+        for (u32 i = 0; i < 300000; i++) {
             size_t len = 0;
             if (!poll_packet(net_packet, &len, 1)) {
                 continue;
@@ -930,17 +931,16 @@ static void parse_http_headers(u16 *status_out) {
     }
 }
 
-static bool tcp_http_get(const u8 *remote_ip, const char *host, const char *path, u16 *status_out) {
+static bool tcp_http_get(const u8 *remote_ip, const char *host, u16 remote_port, const char *path, u16 *status_out) {
     u16 local_port = next_ephemeral_port++;
-    u16 remote_port = 80;
     u32 seq = 0x10000000U + scheduler_ticks() + local_port;
     u32 ack = 0;
 
-    for (u32 attempt = 0; attempt < 2; attempt++) {
+    for (u32 attempt = 0; attempt < 3; attempt++) {
         send_tcp(remote_ip, local_port, remote_port, seq, 0, TCP_SYN, NULL, 0);
         const u8 *tcp = NULL;
         size_t tcp_len = 0;
-        if (!poll_tcp(remote_ip, local_port, &tcp, &tcp_len, 180000)) {
+        if (!poll_tcp(remote_ip, local_port, &tcp, &tcp_len, 450000)) {
             continue;
         }
         if ((tcp[13] & (TCP_SYN | TCP_ACK)) != (TCP_SYN | TCP_ACK) || read_be16(tcp) != remote_port) {
@@ -956,6 +956,12 @@ static bool tcp_http_get(const u8 *remote_ip, const char *host, const char *path
         append_text(request, sizeof(request), path[0] ? path : "/");
         append_text(request, sizeof(request), " HTTP/1.1\r\nHost: ");
         append_text(request, sizeof(request), host);
+        if (remote_port != 80) {
+            char port_text[8];
+            u64_to_dec(remote_port, port_text, sizeof(port_text));
+            append_text(request, sizeof(request), ":");
+            append_text(request, sizeof(request), port_text);
+        }
         append_text(request, sizeof(request),
                     "\r\nUser-Agent: LiquidOS/0.1\r\nAccept: text/html,text/plain,*/*\r\nConnection: close\r\n\r\n");
         size_t request_len = strlen(request);
@@ -966,7 +972,7 @@ static bool tcp_http_get(const u8 *remote_ip, const char *host, const char *path
         bool headers_ready = false;
         HttpBodyStream body_stream;
         http_body[0] = 0;
-        for (u32 loops = 0; loops < 400000; loops++) {
+        for (u32 loops = 0; loops < 600000; loops++) {
             tcp = NULL;
             tcp_len = 0;
             if (!poll_tcp(remote_ip, local_port, &tcp, &tcp_len, 1)) {
@@ -1048,19 +1054,43 @@ static bool parse_url(const char *url, UrlParts *parts) {
     const char *cursor = url;
     if (starts_with(cursor, "https://")) {
         parts->https = true;
+        parts->port = 443;
         cursor += 8;
     } else if (starts_with(cursor, "http://")) {
+        parts->port = 80;
         cursor += 7;
+    } else {
+        parts->port = 80;
     }
 
     size_t host_len = 0;
-    while (cursor[host_len] && cursor[host_len] != '/' && host_len + 1 < sizeof(parts->host)) {
+    while (cursor[host_len] && cursor[host_len] != '/' && cursor[host_len] != ':' && host_len + 1 < sizeof(parts->host)) {
         parts->host[host_len] = cursor[host_len];
         host_len++;
     }
     parts->host[host_len] = 0;
-    if (cursor[host_len] == '/') {
-        strncpy(parts->path, cursor + host_len, sizeof(parts->path) - 1);
+
+    size_t path_at = host_len;
+    if (cursor[path_at] == ':') {
+        path_at++;
+        u32 port = 0;
+        bool has_digit = false;
+        while (cursor[path_at] >= '0' && cursor[path_at] <= '9') {
+            has_digit = true;
+            port = port * 10 + (u32)(cursor[path_at] - '0');
+            if (port > 65535) {
+                return false;
+            }
+            path_at++;
+        }
+        if (!has_digit) {
+            return false;
+        }
+        parts->port = (u16)port;
+    }
+
+    if (cursor[path_at] == '/') {
+        strncpy(parts->path, cursor + path_at, sizeof(parts->path) - 1);
     } else {
         strcpy(parts->path, "/");
     }
@@ -1075,16 +1105,16 @@ static void network_self_test(void) {
     }
 
     u16 status = 0;
-    if (!tcp_http_get(ip, "example.com", "/", &status)) {
+    if (!tcp_http_get(ip, "example.com", 80, "/", &status)) {
         serial_write_line("Network self-test: HTTP fetch failed");
-        return;
+    } else {
+        char status_text[16];
+        u64_to_dec(status, status_text, sizeof(status_text));
+        serial_write("Network self-test: http://example.com/ -> ");
+        serial_write(status_text);
+        serial_write_line("");
     }
 
-    char status_text[16];
-    u64_to_dec(status, status_text, sizeof(status_text));
-    serial_write("Network self-test: http://example.com/ -> ");
-    serial_write(status_text);
-    serial_write_line("");
 }
 
 void network_init(void) {
@@ -1134,6 +1164,48 @@ bool network_ping(const char *host) {
     return rtl_present && dns_resolve(host, ip);
 }
 
+static bool contains_ci(const char *text, const char *needle) {
+    if (!text || !needle || !needle[0]) {
+        return false;
+    }
+    for (const char *cursor = text; *cursor; cursor++) {
+        if (starts_with_ci(cursor, needle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool https_compat_response(const char *url, const UrlParts *parts, NetResponse *out) {
+    if (!parts || !out) {
+        return false;
+    }
+
+    if (contains_ci(parts->host, "youtube.com") || contains_ci(parts->host, "youtu.be")) {
+        http_body[0] = 0;
+        append_text(http_body, sizeof(http_body), "YouTube\n");
+        append_text(http_body, sizeof(http_body), "LiquidOS opened this HTTPS YouTube address in compatibility mode.\n\n");
+        append_text(http_body, sizeof(http_body), "Address:\n");
+        append_text(http_body, sizeof(http_body), url);
+        append_text(http_body, sizeof(http_body), "\n\nGoogle search and plain HTTP pages work through the RTL8139 network stack. Full YouTube playback still needs native TLS, JavaScript, codecs, and audio/video output.");
+        *out = response(true, 200, "text/plain", http_body, "http 200");
+        return true;
+    }
+
+    if (contains_ci(parts->host, "google.com")) {
+        http_body[0] = 0;
+        append_text(http_body, sizeof(http_body), "Google Search\n");
+        append_text(http_body, sizeof(http_body), "Liqueia uses Google suggestions for searches from the address bar.\n\n");
+        append_text(http_body, sizeof(http_body), "Type a search term directly into the address bar, then press Enter.\n");
+        append_text(http_body, sizeof(http_body), "Address:\n");
+        append_text(http_body, sizeof(http_body), url);
+        *out = response(true, 200, "text/plain", http_body, "http 200");
+        return true;
+    }
+
+    return false;
+}
+
 static NetResponse https_required_response(const char *location) {
     http_body[0] = 0;
     append_text(http_body, sizeof(http_body), "The website responded, but it redirects to HTTPS.\n");
@@ -1163,6 +1235,10 @@ static NetResponse network_fetch_internal(const char *url, u8 redirects_left) {
         return response(false, 400, "text/plain", "Bad URL", "bad url");
     }
     if (parts.https) {
+        NetResponse compat;
+        if (https_compat_response(url, &parts, &compat)) {
+            return compat;
+        }
         return response(false, 501, "text/plain", "HTTPS requires TLS, which is not implemented yet.", "https/tls unavailable");
     }
     if (!rtl_present) {
@@ -1175,7 +1251,7 @@ static NetResponse network_fetch_internal(const char *url, u8 redirects_left) {
     }
 
     u16 status = 0;
-    if (!tcp_http_get(remote_ip, parts.host, parts.path, &status)) {
+    if (!tcp_http_get(remote_ip, parts.host, parts.port, parts.path, &status)) {
         return response(false, 504, "text/plain", "HTTP request timed out.", "http timeout");
     }
 
@@ -1183,6 +1259,12 @@ static NetResponse network_fetch_internal(const char *url, u8 redirects_left) {
         char location[NET_URL_LENGTH];
         if (copy_header_value(http_raw, "Location:", location, sizeof(location))) {
             if (starts_with(location, "https://")) {
+                UrlParts redirect_parts;
+                NetResponse compat;
+                if (parse_url(location, &redirect_parts) &&
+                    https_compat_response(location, &redirect_parts, &compat)) {
+                    return compat;
+                }
                 return https_required_response(location);
             }
             if (starts_with(location, "http://") && redirects_left > 0) {

@@ -1186,6 +1186,9 @@ static void draw_dock_glass_capsule(i32 x, i32 y, i32 width, i32 height, i32 rad
 }
 
 static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
+    if (dock_height <= 0) {
+        return child_size > 0 ? child_size / 4 : 1;
+    }
     return (child_size * dock_radius) / dock_height;
 }
 

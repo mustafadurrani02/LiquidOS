@@ -85,16 +85,15 @@ static PlatformCapability capabilities[] = {
     { "recovery", "accessibility", PLATFORM_PLANNED, "not implemented" },
 };
 
+#define CAP_NETWORK_MANAGER 54
+
 void platform_init(void) {
     capabilities[0].status = disk_is_available() ? PLATFORM_AVAILABLE : PLATFORM_MISSING;
     capabilities[0].detail = disk_is_available() ? "IDE-compatible sector I/O detected" : "no ATA disk interface detected";
     capabilities[10].detail = fs_persistence_available() ? "LiquidFS saves to ATA sectors" : "LiquidFS is RAM-only in this VM";
-    for (size_t i = 0; i < sizeof(capabilities) / sizeof(capabilities[0]); i++) {
-        if (strcmp(capabilities[i].area, "services") == 0 &&
-            strcmp(capabilities[i].name, "network manager") == 0) {
-            capabilities[i].detail = network_info()->link_up ? "loopnet0 DNS/HTTP download route active" : "network service offline";
-            break;
-        }
+    if (CAP_NETWORK_MANAGER < platform_capability_count()) {
+        capabilities[CAP_NETWORK_MANAGER].detail = network_info()->link_up ?
+            "loopnet0 DNS/HTTP download route active" : "network service offline";
     }
     serial_write_line("Platform capability registry initialized");
 }

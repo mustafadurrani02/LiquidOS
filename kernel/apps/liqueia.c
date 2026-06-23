@@ -76,6 +76,28 @@ static bool contains_char(const char *text, char ch) {
     return false;
 }
 
+static bool contains_text_ci(const char *text, const char *needle) {
+    if (!text || !needle || !needle[0]) {
+        return false;
+    }
+    while (*text) {
+        if (starts_with_ci(text, needle)) {
+            return true;
+        }
+        text++;
+    }
+    return false;
+}
+
+static bool is_youtube_address(const char *address) {
+    return contains_text_ci(address, "youtube.com") || contains_text_ci(address, "youtu.be");
+}
+
+static bool is_google_address(const char *address) {
+    return contains_text_ci(address, "google.com") ||
+           contains_text_ci(address, "suggestqueries.google.com");
+}
+
 static void set_address(LiqueiaTab *tab, const char *address) {
     strncpy(tab->address, address, LIQUEIA_URL_LENGTH - 1);
     tab->address[LIQUEIA_URL_LENGTH - 1] = 0;
@@ -747,9 +769,101 @@ static void draw_offline(i32 x, i32 y, i32 width, i32 height) {
     }
 }
 
+static void draw_youtube_card(i32 x, i32 y, i32 width, const char *title, const char *meta, Color accent) {
+    gfx_fill_round_rect_plain_alpha(x, y, width, 142, 18, RGB(20, 21, 27), 255);
+    gfx_fill_round_rect_plain_alpha(x + 10, y + 10, width - 20, 82, 14, accent, 255);
+    gfx_fill_circle_alpha(x + width / 2, y + 51, 24, RGB(255, 255, 255), 54);
+    gfx_draw_text(x + width / 2 - 5, y + 42, ">", RGB(255, 255, 255), 2);
+    gfx_draw_text(x + 12, y + 104, title, RGB(245, 245, 248), 1);
+    gfx_draw_text(x + 12, y + 124, meta, RGB(151, 152, 162), 1);
+}
+
+static void draw_youtube_page(i32 x, i32 y, i32 width, i32 height) {
+    (void)height;
+    i32 panel_x = x + 24;
+    i32 panel_y = y + 152;
+    i32 panel_w = width - 48;
+    gfx_fill_round_rect_plain_alpha(panel_x, panel_y, panel_w, height - 172, 24, RGB(14, 15, 20), 255);
+    gfx_fill_round_rect_plain_alpha(panel_x + 26, panel_y + 24, 44, 32, 10, RGB(255, 34, 34), 255);
+    gfx_draw_text(panel_x + 42, panel_y + 31, ">", RGB(255, 255, 255), 1);
+    gfx_draw_text(panel_x + 82, panel_y + 25, "YouTube", RGB(255, 255, 255), 2);
+    gfx_fill_round_rect_plain_alpha(panel_x + 210, panel_y + 22, panel_w - 316, 38, 18, RGB(31, 32, 39), 255);
+    gfx_draw_text(panel_x + 228, panel_y + 33, "Search YouTube", RGB(167, 168, 178), 1);
+    gfx_fill_round_rect_plain_alpha(panel_x + panel_w - 86, panel_y + 22, 58, 38, 18, RGB(37, 38, 46), 255);
+    gfx_draw_text(panel_x + panel_w - 65, panel_y + 33, "Go", RGB(245, 245, 248), 1);
+
+    gfx_draw_text(panel_x + 28, panel_y + 84, "Home", RGB(255, 255, 255), 1);
+    gfx_draw_text(panel_x + 96, panel_y + 84, "Shorts", RGB(171, 172, 182), 1);
+    gfx_draw_text(panel_x + 178, panel_y + 84, "Subscriptions", RGB(171, 172, 182), 1);
+    gfx_draw_text(panel_x + 312, panel_y + 84, "Music", RGB(171, 172, 182), 1);
+
+    i32 card_w = (panel_w - 76) / 3;
+    if (card_w < 150) {
+        card_w = (panel_w - 60) / 2;
+        draw_youtube_card(panel_x + 22, panel_y + 116, card_w, "LiquidOS first look", "12K views - now", RGB(88, 80, 190));
+        draw_youtube_card(panel_x + 38 + card_w, panel_y + 116, card_w, "Liqueia browser demo", "8.4K views", RGB(153, 65, 96));
+        draw_youtube_card(panel_x + 22, panel_y + 274, card_w, "Building an OS", "Live", RGB(45, 96, 142));
+        draw_youtube_card(panel_x + 38 + card_w, panel_y + 274, card_w, "Desktop tour", "New", RGB(92, 76, 52));
+        return;
+    }
+
+    draw_youtube_card(panel_x + 22, panel_y + 116, card_w, "LiquidOS first look", "12K views - now", RGB(88, 80, 190));
+    draw_youtube_card(panel_x + 38 + card_w, panel_y + 116, card_w, "Liqueia browser demo", "8.4K views", RGB(153, 65, 96));
+    draw_youtube_card(panel_x + 54 + card_w * 2, panel_y + 116, card_w, "Building an OS", "Live", RGB(45, 96, 142));
+    draw_youtube_card(panel_x + 22, panel_y + 274, card_w, "Desktop tour", "New", RGB(92, 76, 52));
+    draw_youtube_card(panel_x + 38 + card_w, panel_y + 274, card_w, "Kernel devlog", "Recommended", RGB(62, 95, 88));
+    draw_youtube_card(panel_x + 54 + card_w * 2, panel_y + 274, card_w, "UI polish session", "4.9K views", RGB(104, 74, 128));
+}
+
+static void draw_google_page(i32 x, i32 y, i32 width, i32 height) {
+    LiqueiaTab *tab = &tabs[active_tab];
+    i32 panel_x = x + 24;
+    i32 panel_y = y + 152;
+    i32 panel_w = width - 48;
+    gfx_fill_round_rect_plain_alpha(panel_x, panel_y, panel_w, height - 172, 24, RGB(18, 19, 25), 255);
+    gfx_draw_text(panel_x + 40, panel_y + 30, "Google", RGB(246, 238, 222), 2);
+    gfx_fill_round_rect_plain_alpha(panel_x + 40, panel_y + 70, panel_w - 80, 44, 20, RGB(35, 36, 43), 255);
+    gfx_draw_text(panel_x + 58, panel_y + 84, "Search results from Google", RGB(182, 183, 192), 1);
+
+    const char *line = tab->display_text;
+    i32 row = 0;
+    while (*line && row < 7) {
+        char text[72];
+        size_t used = 0;
+        while (line[used] && line[used] != '\n' && used + 1 < sizeof(text)) {
+            text[used] = line[used];
+            used++;
+        }
+        text[used] = 0;
+        if (text[0] && !starts_with_ci(text, "Google search suggestions")) {
+            i32 result_y = panel_y + 140 + row * 44;
+            gfx_draw_text(panel_x + 48, result_y, text, RGB(134, 176, 255), 1);
+            gfx_draw_text(panel_x + 48, result_y + 20, "Search Google for this result", RGB(151, 152, 162), 1);
+            row++;
+        }
+        line += used;
+        if (*line == '\n') {
+            line++;
+        }
+    }
+
+    if (row == 0) {
+        gfx_draw_text(panel_x + 48, panel_y + 148, "Type a search in the address bar and press Enter.", RGB(205, 205, 212), 1);
+    }
+}
+
 static void draw_web_page(i32 x, i32 y, i32 width, i32 height) {
     LiqueiaTab *tab = &tabs[active_tab];
     NetResponse fetched = tab->response;
+    if (is_youtube_address(tab->address)) {
+        draw_youtube_page(x, y, width, height);
+        return;
+    }
+    if (is_google_address(tab->address)) {
+        draw_google_page(x, y, width, height);
+        return;
+    }
+
     gfx_fill_round_rect_plain_alpha(x + 24, y + 152, width - 48, height - 172, 24, RGB(24, 25, 32), 255);
     gfx_fill_circle_alpha(x + width - 110, y + 205, 72, RGB(86, 155, 255), 20);
     gfx_draw_text(x + 52, y + 184, fetched.status == 200 ? "Page loaded" : "Request failed", RGB(246, 238, 222), 2);

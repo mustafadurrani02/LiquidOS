@@ -102,6 +102,28 @@ typedef struct FileExplorerEntry {
     u64 modified_tick;
 } FileExplorerEntry;
 
+typedef struct FileExplorerLayout {
+    i32 x;
+    i32 y;
+    i32 width;
+    i32 height;
+    i32 sidebar_w;
+    i32 main_x;
+    i32 main_w;
+    i32 preview_x;
+    i32 preview_w;
+    i32 nav_y;
+    i32 command_y;
+    i32 body_y;
+    i32 body_h;
+    i32 address_x;
+    i32 address_w;
+    i32 search_x;
+    i32 search_w;
+    i32 list_y;
+    i32 row_h;
+} FileExplorerLayout;
+
 typedef enum FileClipboardMode {
     FILE_CLIPBOARD_EMPTY = 0,
     FILE_CLIPBOARD_COPY,
@@ -119,6 +141,10 @@ typedef enum FileCommand {
     FILE_CMD_RENAME,
     FILE_CMD_DELETE,
     FILE_CMD_REFRESH,
+    FILE_CMD_SORT,
+    FILE_CMD_VIEW,
+    FILE_CMD_FILTER,
+    FILE_CMD_DETAILS,
     FILE_CMD_COUNT
 } FileCommand;
 
@@ -133,7 +159,7 @@ static const DockApp dock_apps[] = {
     { WINDOW_BROWSER, "BROWSER", app_icon_browser_argb, APP_ICON_BROWSER_WIDTH, APP_ICON_BROWSER_HEIGHT, RGB(70, 52, 20), RGB(2, 2, 8), true },
     { WINDOW_FILES, "FILES", app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT, RGB(238, 145, 255), RGB(116, 62, 218), true },
     { WINDOW_TERMINAL, "TERMINAL", app_icon_terminal_argb, APP_ICON_TERMINAL_WIDTH, APP_ICON_TERMINAL_HEIGHT, RGB(38, 42, 75), RGB(8, 9, 22), true },
-    { WINDOW_SETTINGS, "SETTINGS", app_icon_settings_argb, APP_ICON_SETTINGS_WIDTH, APP_ICON_SETTINGS_HEIGHT, RGB(104, 130, 164), RGB(54, 61, 78), false },
+    { WINDOW_SETTINGS, "SETTINGS", NULL, 0, 0, RGB(104, 130, 164), RGB(54, 61, 78), false },
 };
 
 static Window windows[WINDOW_COUNT];
@@ -191,6 +217,10 @@ static size_t files_clipboard_count = 0;
 static i32 selected_file_index = 0;
 static bool files_dirty = true;
 static bool files_search_editing = false;
+static bool files_sort_desc = false;
+static bool files_grid_view = false;
+static bool files_filter_folders = false;
+static bool files_details_visible = false;
 static u32 new_file_counter = 1;
 static u32 new_folder_counter = 1;
 static size_t current_theme = 0;
@@ -213,7 +243,11 @@ static size_t file_location_count(void) {
 }
 
 static bool path_is_home(const char *path) {
-    return path[0] == 'H' && path[1] == 'O' && path[2] == 'M' && path[3] == 'E' && path[4] == 0;
+    return (path[0] == 'H' || path[0] == 'h') &&
+           (path[1] == 'O' || path[1] == 'o') &&
+           (path[2] == 'M' || path[2] == 'm') &&
+           (path[3] == 'E' || path[3] == 'e') &&
+           path[4] == 0;
 }
 
 static bool path_is_desktop(const char *path) {
@@ -282,15 +316,21 @@ static i32 file_command_width(FileCommand command) {
     if (command == FILE_CMD_BACK) return 30;
     if (command == FILE_CMD_FORWARD) return 30;
     if (command == FILE_CMD_UP) return 30;
-    if (command == FILE_CMD_NEW_FOLDER) return 82;
+    if (command == FILE_CMD_NEW_FOLDER) return 50;
     if (command == FILE_CMD_COPY) return 48;
-    if (command == FILE_CMD_CUT) return 42;
-    if (command == FILE_CMD_PASTE) return 56;
-    if (command == FILE_CMD_RENAME) return 68;
-    if (command == FILE_CMD_DELETE) return 62;
-    if (command == FILE_CMD_REFRESH) return 62;
+    if (command == FILE_CMD_CUT) return 40;
+    if (command == FILE_CMD_PASTE) return 54;
+    if (command == FILE_CMD_RENAME) return 64;
+    if (command == FILE_CMD_DELETE) return 50;
+    if (command == FILE_CMD_REFRESH) return 30;
+    if (command == FILE_CMD_SORT) return 54;
+    if (command == FILE_CMD_VIEW) return 54;
+    if (command == FILE_CMD_FILTER) return 58;
+    if (command == FILE_CMD_DETAILS) return 62;
     return 0;
 }
+
+static i32 file_button_height(void);
 
 static i32 dock_scale(void) {
     if (dock_scale_percent < 82 || dock_scale_percent > 135) {
@@ -865,6 +905,9 @@ static void files_add_entry(const char *name, const char *path, bool folder, u64
         files_entry_duplicate(path, folder)) {
         return;
     }
+    if (files_filter_folders && !folder) {
+        return;
+    }
     if (files_search[0] && !contains_text_ci(name, files_search) && !contains_text_ci(path, files_search)) {
         return;
     }
@@ -889,6 +932,26 @@ static void files_add_root_location_entry(size_t index) {
     if (index == 7) { files_add_entry("Applications", "APPS", true, 0, 1); return; }
     if (index == 8) { files_add_entry("System", "SYSTEM", true, 0, 1); return; }
     if (index == 9) { files_add_entry("Trash", "TRASH", true, 0, 1); return; }
+}
+
+static i32 files_compare_entries(const FileExplorerEntry *left, const FileExplorerEntry *right) {
+    if (left->folder != right->folder) {
+        return left->folder ? -1 : 1;
+    }
+    i32 cmp = strcmp(left->name, right->name);
+    return files_sort_desc ? -cmp : cmp;
+}
+
+static void files_sort_entries(void) {
+    for (size_t i = 0; i < files_entry_count; i++) {
+        for (size_t j = i + 1; j < files_entry_count; j++) {
+            if (files_compare_entries(&files_entries[i], &files_entries[j]) > 0) {
+                FileExplorerEntry temp = files_entries[i];
+                files_entries[i] = files_entries[j];
+                files_entries[j] = temp;
+            }
+        }
+    }
 }
 
 static void files_rebuild_entries(void) {
@@ -925,6 +988,7 @@ static void files_rebuild_entries(void) {
             files_add_entry(name, file->name, false, file->size, file->modified_tick);
         }
     }
+    files_sort_entries();
 
     if (selected_file_index >= (i32)files_entry_count) {
         selected_file_index = (i32)files_entry_count - 1;
@@ -1341,6 +1405,24 @@ static void files_run_command(FileCommand command) {
         files_mark_dirty();
         set_taskbar_message("REFRESHED");
         break;
+    case FILE_CMD_SORT:
+        files_sort_desc = !files_sort_desc;
+        files_mark_dirty();
+        set_taskbar_message(files_sort_desc ? "SORT Z-A" : "SORT A-Z");
+        break;
+    case FILE_CMD_VIEW:
+        files_grid_view = !files_grid_view;
+        set_taskbar_message(files_grid_view ? "GRID VIEW" : "LIST VIEW");
+        break;
+    case FILE_CMD_FILTER:
+        files_filter_folders = !files_filter_folders;
+        files_mark_dirty();
+        set_taskbar_message(files_filter_folders ? "FOLDERS ONLY" : "FILTER OFF");
+        break;
+    case FILE_CMD_DETAILS:
+        files_details_visible = !files_details_visible;
+        set_taskbar_message(files_details_visible ? "DETAILS ON" : "DETAILS OFF");
+        break;
     default:
         break;
     }
@@ -1365,55 +1447,188 @@ static void files_on_char(char ch) {
     files_mark_dirty();
 }
 
+static void files_make_layout(i32 x, i32 y, i32 width, i32 height, FileExplorerLayout *layout) {
+    layout->x = x;
+    layout->y = y;
+    layout->width = width;
+    layout->height = height;
+    layout->sidebar_w = width < 700 ? 120 : 148;
+    layout->preview_w = (files_details_visible && width >= 760) ? 182 : 0;
+    layout->main_x = x + layout->sidebar_w + 10;
+    layout->main_w = width - layout->sidebar_w - layout->preview_w - 24;
+    if (layout->main_w < 260) {
+        layout->main_w = width - layout->sidebar_w - 18;
+        layout->preview_w = 0;
+    }
+    layout->preview_x = x + width - layout->preview_w - 10;
+    layout->nav_y = y + 10;
+    layout->command_y = y + 48;
+    layout->body_y = y + 84;
+    layout->body_h = height - 96;
+    layout->row_h = 36;
+    layout->list_y = layout->body_y + 92;
+    layout->search_w = width < 760 ? 142 : 190;
+    layout->search_x = x + width - layout->search_w - 14;
+    if (layout->preview_w > 0) {
+        layout->search_x = layout->preview_x - layout->search_w - 10;
+    }
+    layout->address_x = x + 132;
+    layout->address_w = layout->search_x - layout->address_x - 8;
+    if (layout->address_w < 92) {
+        layout->address_x = x + 112;
+        layout->address_w = layout->search_x - layout->address_x - 8;
+    }
+    if (layout->address_w < 80) {
+        layout->address_w = 80;
+    }
+}
+
+static size_t files_quick_location(size_t index) {
+    if (index == 0) return 1;
+    if (index == 1) return 3;
+    if (index == 2) return 2;
+    if (index == 3) return 4;
+    if (index == 4) return 5;
+    if (index == 5) return 6;
+    return 0;
+}
+
+static size_t files_quick_location_count(void) {
+    return 6;
+}
+
+static bool files_command_bar_hit(const FileExplorerLayout *layout, i32 px, i32 py, FileCommand *out) {
+    i32 bx = layout->x + 12;
+    i32 details_w = file_command_width(FILE_CMD_DETAILS);
+    i32 details_x = layout->x + layout->width - details_w - 14;
+    i32 command_limit = details_x - 12;
+    if (point_in_rect(px, py, details_x, layout->command_y, details_w, file_button_height())) {
+        *out = FILE_CMD_DETAILS;
+        return true;
+    }
+    #define FILES_TRY_BAR_COMMAND(command_value) \
+        do { \
+            FileCommand command = (command_value); \
+            i32 width = file_command_width(command); \
+            if (bx + width > command_limit) { \
+                return false; \
+            } \
+            if (point_in_rect(px, py, bx, layout->command_y, width, file_button_height())) { \
+                *out = command; \
+                return true; \
+            } \
+            bx += width + 7; \
+        } while (0)
+    FILES_TRY_BAR_COMMAND(FILE_CMD_NEW_FOLDER);
+    FILES_TRY_BAR_COMMAND(FILE_CMD_CUT);
+    FILES_TRY_BAR_COMMAND(FILE_CMD_COPY);
+    FILES_TRY_BAR_COMMAND(FILE_CMD_PASTE);
+    FILES_TRY_BAR_COMMAND(FILE_CMD_RENAME);
+    FILES_TRY_BAR_COMMAND(FILE_CMD_DELETE);
+    FILES_TRY_BAR_COMMAND(FILE_CMD_SORT);
+    FILES_TRY_BAR_COMMAND(FILE_CMD_VIEW);
+    FILES_TRY_BAR_COMMAND(FILE_CMD_FILTER);
+    #undef FILES_TRY_BAR_COMMAND
+    return false;
+}
+
+static bool files_nav_hit(const FileExplorerLayout *layout, i32 px, i32 py, FileCommand *out) {
+    i32 bx = layout->main_x + 8;
+    #define FILES_TRY_NAV_COMMAND(command_value) \
+        do { \
+            if (point_in_rect(px, py, bx, layout->nav_y, 28, file_button_height())) { \
+                *out = (command_value); \
+                return true; \
+            } \
+            bx += 32; \
+        } while (0)
+    FILES_TRY_NAV_COMMAND(FILE_CMD_BACK);
+    FILES_TRY_NAV_COMMAND(FILE_CMD_FORWARD);
+    FILES_TRY_NAV_COMMAND(FILE_CMD_UP);
+    FILES_TRY_NAV_COMMAND(FILE_CMD_REFRESH);
+    #undef FILES_TRY_NAV_COMMAND
+    return false;
+}
+
 static void handle_files_click(const Window *window) {
     i32 x = window->x + 6;
     i32 y = window->y + 30;
     i32 width = window->width - 12;
     i32 height = window->height - 36;
-    i32 sidebar_w = width < 650 ? 122 : 148;
-    i32 main_x = x + sidebar_w + 12;
-    i32 toolbar_y = y + 10;
-    i32 search_w = width < 720 ? 126 : 172;
-    i32 search_x = x + width - search_w - 16;
-    i32 row_y = y + 112;
-    i32 row_h = 34;
-    i32 bx = main_x;
+    FileExplorerLayout layout;
+    files_make_layout(x, y, width, height, &layout);
 
-    for (i32 i = 0; i < FILE_CMD_COUNT; i++) {
-        i32 button_w = file_command_width((FileCommand)i);
-        if (point_in_rect(mouse_x, mouse_y, bx, toolbar_y, button_w, 28)) {
-            files_run_command((FileCommand)i);
-            mark_dirty_rect(window->x, window->y, window->width, window->height);
-            return;
-        }
-        bx += button_w + 7;
-        if (bx > search_x - 16) {
-            break;
-        }
+    FileCommand command;
+    if (files_nav_hit(&layout, mouse_x, mouse_y, &command) ||
+        files_command_bar_hit(&layout, mouse_x, mouse_y, &command)) {
+        files_run_command(command);
+        mark_dirty_rect(window->x, window->y, window->width, window->height);
+        return;
     }
 
-    if (point_in_rect(mouse_x, mouse_y, search_x, toolbar_y, search_w, 28)) {
+    if (point_in_rect(mouse_x, mouse_y, layout.search_x, layout.nav_y, layout.search_w, 28)) {
         files_search_editing = true;
         mark_dirty_rect(window->x, window->y, window->width, window->height);
         return;
     }
     files_search_editing = false;
 
-    i32 loc_y = y + 62;
+    i32 loc_y = layout.body_y + 4;
     for (size_t i = 0; i < file_location_count(); i++) {
-        if (point_in_rect(mouse_x, mouse_y, x + 12, loc_y + (i32)i * 30, sidebar_w - 22, 25)) {
+        if (point_in_rect(mouse_x, mouse_y, x + 10, loc_y + (i32)i * 29, layout.sidebar_w - 18, 24)) {
             files_navigate_to_location(i, true);
             mark_dirty_rect(window->x, window->y, window->width, window->height);
             return;
         }
     }
 
+    if (path_is_home(files_current_path)) {
+        i32 card_w = layout.main_w < 520 ? (layout.main_w - 18) / 2 : (layout.main_w - 34) / 3;
+        i32 card_h = 58;
+        i32 grid_x = layout.main_x + 10;
+        i32 grid_y = layout.body_y + 42;
+        for (size_t i = 0; i < files_quick_location_count(); i++) {
+            i32 col_count = layout.main_w < 520 ? 2 : 3;
+            i32 col = (i32)(i % (size_t)col_count);
+            i32 row = (i32)(i / (size_t)col_count);
+            i32 cx = grid_x + col * (card_w + 12);
+            i32 cy = grid_y + row * (card_h + 12);
+            if (point_in_rect(mouse_x, mouse_y, cx, cy, card_w, card_h)) {
+                files_navigate_to_location(files_quick_location(i), true);
+                mark_dirty_rect(window->x, window->y, window->width, window->height);
+                return;
+            }
+        }
+    }
+
     files_ensure_entries();
-    i32 list_h = height - 126;
-    if (point_in_rect(mouse_x, mouse_y, main_x, row_y, width - sidebar_w - 28, list_h)) {
-        i32 row = (mouse_y - row_y) / row_h;
+    if (files_grid_view && !path_is_home(files_current_path)) {
+        i32 card_w = layout.main_w < 520 ? (layout.main_w - 22) / 2 : (layout.main_w - 40) / 3;
+        i32 card_h = 72;
+        i32 grid_x = layout.main_x + 10;
+        i32 grid_y = layout.body_y + 44;
+        i32 col_count = layout.main_w < 520 ? 2 : 3;
+        for (size_t i = 0; i < files_entry_count; i++) {
+            i32 col = (i32)(i % (size_t)col_count);
+            i32 row = (i32)(i / (size_t)col_count);
+            i32 cx = grid_x + col * (card_w + 14);
+            i32 cy = grid_y + row * (card_h + 12);
+            if (point_in_rect(mouse_x, mouse_y, cx, cy, card_w, card_h)) {
+                if (files_entries[i].folder) {
+                    files_navigate_to(files_entries[i].path, true);
+                } else {
+                    files_select_index((i32)i);
+                    set_taskbar_message("FILE SELECTED");
+                }
+                mark_dirty_rect(window->x, window->y, window->width, window->height);
+                return;
+            }
+        }
+    } else if (!path_is_home(files_current_path) &&
+               point_in_rect(mouse_x, mouse_y, layout.main_x, layout.list_y, layout.main_w, layout.body_h - 104)) {
+        i32 row = (mouse_y - layout.list_y) / layout.row_h;
         if (row >= 0 && row < (i32)files_entry_count) {
-            if (point_in_rect(mouse_x, mouse_y, main_x + 8, row_y + row * row_h + 9, 16, 16)) {
+            if (point_in_rect(mouse_x, mouse_y, layout.main_x + 10, layout.list_y + row * layout.row_h + 9, 16, 16)) {
                 files_toggle_index(row);
                 set_taskbar_message("MULTI SELECT");
             } else if (files_entries[row].folder) {
@@ -1902,15 +2117,6 @@ static void draw_glass_panel(i32 x, i32 y, i32 width, i32 height, i32 radius) {
     gfx_liquid_glass_rect(x, y, width, height, radius);
 }
 
-static void draw_glass_chip(i32 x, i32 y, i32 width, i32 height, const char *label, bool active) {
-    gfx_fill_round_rect_alpha(x + 2, y + 3, width, height, height / 2, RGB(0, 0, 0), 34);
-    gfx_liquid_glass_rect(x, y, width, height, height / 2);
-    if (active) {
-        gfx_fill_round_rect_alpha(x + 3, y + 3, width - 6, height - 6, height / 2, themes[current_theme].accent, 64);
-    }
-    gfx_draw_text(x + 12, y + (height / 2) - 5, label, active ? RGB(255, 255, 255) : RGB(34, 45, 56), 1);
-}
-
 static void draw_background(void) {
     gfx_draw_wallpaper();
 }
@@ -2037,6 +2243,28 @@ static void draw_dock_icon_asset(i32 x, i32 y, i32 tile_size, i32 radius, i32 im
     gfx_draw_round_rect_alpha(x, y, tile_size, tile_size, radius, RGB(247, 252, 255), 43);
 }
 
+static void draw_settings_dock_glyph(i32 x, i32 y, i32 tile_size) {
+    i32 cx = x + tile_size / 2;
+    i32 cy = y + tile_size / 2;
+    i32 tooth = tile_size / 8;
+    i32 outer = tile_size / 4;
+    i32 inner = tile_size / 9;
+    Color white = RGB(248, 252, 255);
+    Color core = RGB(84, 104, 128);
+
+    gfx_fill_round_rect_alpha(cx - tooth / 2, cy - outer - tooth, tooth, tooth + 4, tooth / 2, white, 220);
+    gfx_fill_round_rect_alpha(cx - tooth / 2, cy + outer - 4, tooth, tooth + 4, tooth / 2, white, 220);
+    gfx_fill_round_rect_alpha(cx - outer - tooth, cy - tooth / 2, tooth + 4, tooth, tooth / 2, white, 220);
+    gfx_fill_round_rect_alpha(cx + outer - 4, cy - tooth / 2, tooth + 4, tooth, tooth / 2, white, 220);
+    gfx_fill_round_rect_alpha(cx - outer + 1, cy - outer + 1, tooth + 2, tooth + 2, tooth / 2, white, 190);
+    gfx_fill_round_rect_alpha(cx + outer - tooth - 3, cy - outer + 1, tooth + 2, tooth + 2, tooth / 2, white, 190);
+    gfx_fill_round_rect_alpha(cx - outer + 1, cy + outer - tooth - 3, tooth + 2, tooth + 2, tooth / 2, white, 190);
+    gfx_fill_round_rect_alpha(cx + outer - tooth - 3, cy + outer - tooth - 3, tooth + 2, tooth + 2, tooth / 2, white, 190);
+    gfx_fill_circle_alpha(cx, cy, outer, white, 224);
+    gfx_fill_circle_alpha(cx, cy, inner + 4, core, 235);
+    gfx_fill_circle_alpha(cx, cy, inner, RGB(18, 24, 34), 120);
+}
+
 static void draw_dock_clock(const TaskbarLayout *bar) {
     i32 text_x = bar->clock_x + dock_scale_value(8);
     i32 text_y = bar->clock_y + (bar->clock_h - dock_scale_value(49)) / 2;
@@ -2129,21 +2357,43 @@ static void draw_window_frame(const Window *window, bool focused) {
     gfx_draw_line(window->x + window->width - 12, window->y + window->height - 5, window->x + window->width - 5, window->y + window->height - 12, RGB(132, 146, 154));
 }
 
-static void draw_button(i32 x, i32 y, i32 width, const char *label, bool active) {
-    draw_glass_chip(x, y, width, 28, label, active);
+static i32 file_button_height(void) {
+    return 24;
+}
+
+static void draw_file_button(i32 x, i32 y, i32 width, const char *label, bool active) {
+    i32 height = file_button_height();
+    i32 radius = 8;
+    gfx_blur_round_rect(x, y, width, height, radius);
+    gfx_refract_round_rect_edges(x, y, width, height, radius, 1);
+    gfx_fill_round_rect_plain_alpha(x, y, width, height, radius,
+                                    active ? themes[current_theme].accent : RGB(246, 250, 255),
+                                    active ? 88 : 58);
+    gfx_draw_round_rect_alpha(x, y, width, height, radius,
+                              active ? RGB(246, 252, 255) : RGB(162, 178, 194),
+                              active ? 54 : 32);
+    i32 text_x = x + 9;
+    if (width <= 32) {
+        text_x = x + width / 2 - 4;
+    }
+    gfx_draw_text(text_x, y + 8, label, active ? RGB(255, 255, 255) : RGB(48, 58, 68), 1);
 }
 
 static void draw_file_command_button(FileCommand command, i32 x, i32 y, i32 width) {
-    if (command == FILE_CMD_BACK) { draw_button(x, y, width, "<", false); return; }
-    if (command == FILE_CMD_FORWARD) { draw_button(x, y, width, ">", false); return; }
-    if (command == FILE_CMD_UP) { draw_button(x, y, width, "^", false); return; }
-    if (command == FILE_CMD_NEW_FOLDER) { draw_button(x, y, width, "New folder", false); return; }
-    if (command == FILE_CMD_COPY) { draw_button(x, y, width, "Copy", false); return; }
-    if (command == FILE_CMD_CUT) { draw_button(x, y, width, "Cut", false); return; }
-    if (command == FILE_CMD_PASTE) { draw_button(x, y, width, "Paste", false); return; }
-    if (command == FILE_CMD_RENAME) { draw_button(x, y, width, "Rename", false); return; }
-    if (command == FILE_CMD_DELETE) { draw_button(x, y, width, "Trash", false); return; }
-    if (command == FILE_CMD_REFRESH) { draw_button(x, y, width, "Refresh", false); return; }
+    if (command == FILE_CMD_BACK) { draw_file_button(x, y, width, "<", false); return; }
+    if (command == FILE_CMD_FORWARD) { draw_file_button(x, y, width, ">", false); return; }
+    if (command == FILE_CMD_UP) { draw_file_button(x, y, width, "^", false); return; }
+    if (command == FILE_CMD_NEW_FOLDER) { draw_file_button(x, y, width, "New", false); return; }
+    if (command == FILE_CMD_COPY) { draw_file_button(x, y, width, "Copy", false); return; }
+    if (command == FILE_CMD_CUT) { draw_file_button(x, y, width, "Cut", false); return; }
+    if (command == FILE_CMD_PASTE) { draw_file_button(x, y, width, "Paste", false); return; }
+    if (command == FILE_CMD_RENAME) { draw_file_button(x, y, width, "Rename", false); return; }
+    if (command == FILE_CMD_DELETE) { draw_file_button(x, y, width, "Trash", false); return; }
+    if (command == FILE_CMD_REFRESH) { draw_file_button(x, y, width, "R", false); return; }
+    if (command == FILE_CMD_SORT) { draw_file_button(x, y, width, files_sort_desc ? "Z-A" : "A-Z", files_sort_desc); return; }
+    if (command == FILE_CMD_VIEW) { draw_file_button(x, y, width, files_grid_view ? "Grid" : "List", files_grid_view); return; }
+    if (command == FILE_CMD_FILTER) { draw_file_button(x, y, width, files_filter_folders ? "Folders" : "Filter", files_filter_folders); return; }
+    if (command == FILE_CMD_DETAILS) { draw_file_button(x, y, width, "Details", files_details_visible); return; }
 }
 
 static void draw_file_location_label(size_t index, i32 x, i32 y, Color color) {
@@ -2157,6 +2407,38 @@ static void draw_file_location_label(size_t index, i32 x, i32 y, Color color) {
     if (index == 7) { gfx_draw_text(x, y, "Applications", color, 1); return; }
     if (index == 8) { gfx_draw_text(x, y, "System", color, 1); return; }
     if (index == 9) { gfx_draw_text(x, y, "Trash", color, 1); return; }
+}
+
+static Color file_location_color(size_t index) {
+    if (index == 1) return RGB(38, 155, 220);
+    if (index == 2) return RGB(116, 142, 170);
+    if (index == 3) return RGB(26, 180, 124);
+    if (index == 4) return RGB(56, 152, 226);
+    if (index == 5) return RGB(218, 104, 96);
+    if (index == 6) return RGB(154, 82, 218);
+    if (index == 7) return RGB(210, 154, 64);
+    if (index == 8) return RGB(92, 108, 126);
+    if (index == 9) return RGB(132, 140, 150);
+    return RGB(92, 148, 220);
+}
+
+static void draw_location_icon(size_t index, i32 x, i32 y, i32 size, bool active) {
+    Color color = file_location_color(index);
+    gfx_fill_round_rect_alpha(x, y, size, size, size / 4, color, active ? 235 : 205);
+    gfx_fill_round_rect_alpha(x + size / 8, y + size / 8, size - size / 4, size / 3, size / 7,
+                              RGB(255, 255, 255), active ? 64 : 42);
+    if (index == 0) {
+        gfx_draw_line(x + size / 4, y + size / 2, x + size / 2, y + size / 4, RGB(255, 255, 255));
+        gfx_draw_line(x + size / 2, y + size / 4, x + (size * 3) / 4, y + size / 2, RGB(255, 255, 255));
+    } else if (index == 3) {
+        gfx_fill_rect(x + size / 2 - 1, y + size / 4, 2, size / 2, RGB(255, 255, 255));
+        gfx_draw_line(x + size / 3, y + size / 2, x + size / 2, y + (size * 2) / 3, RGB(255, 255, 255));
+        gfx_draw_line(x + size / 2, y + (size * 2) / 3, x + (size * 2) / 3, y + size / 2, RGB(255, 255, 255));
+    } else if (index == 9) {
+        gfx_draw_rect(x + size / 3, y + size / 3, size / 3, size / 2, RGB(255, 255, 255));
+        gfx_fill_rect(x + size / 3 - 1, y + size / 4, size / 3 + 2, 2, RGB(255, 255, 255));
+    }
+    gfx_draw_round_rect_alpha(x, y, size, size, size / 4, RGB(255, 255, 255), 54);
 }
 
 static void draw_text_trimmed(i32 x, i32 y, const char *text, size_t max_chars, Color color) {
@@ -2213,111 +2495,217 @@ static void draw_file_icon(i32 x, i32 y, bool folder, bool selected) {
 
 static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
     const DesktopTheme *theme = &themes[current_theme];
+    FileExplorerLayout layout;
 
     files_ensure_entries();
-    draw_glass_panel(x, y, width, height, 16);
-    i32 sidebar_w = width < 650 ? 122 : 148;
-    i32 main_x = x + sidebar_w + 12;
-    i32 toolbar_y = y + 10;
-    i32 search_w = width < 720 ? 126 : 172;
-    i32 search_x = x + width - search_w - 16;
-    i32 preview_w = width > 760 ? 188 : 0;
-    i32 list_w = width - sidebar_w - preview_w - 34;
-    i32 row_y = y + 112;
-    i32 row_h = 34;
+    files_make_layout(x, y, width, height, &layout);
 
-    gfx_fill_round_rect_alpha(x + 8, y + 8, width - 16, 42, 14, RGB(255, 255, 255), 52);
-    i32 bx = main_x;
-    for (i32 i = 0; i < FILE_CMD_COUNT; i++) {
-        FileCommand command = (FileCommand)i;
-        i32 button_w = file_command_width(command);
-        if (bx + button_w > search_x - 14) {
-            break;
-        }
-        draw_file_command_button(command, bx, toolbar_y, button_w);
-        bx += button_w + 7;
+    gfx_blur_round_rect(x, y, width, height, 20);
+    gfx_refract_round_rect_edges(x, y, width, height, 20, 1);
+    gfx_fill_round_rect_plain_alpha(x, y, width, height, 20, RGB(246, 250, 253), 224);
+    gfx_fill_round_rect_plain_alpha(x + 1, y + 1, width - 2, 40, 19, RGB(226, 238, 248), 168);
+    gfx_draw_round_rect_alpha(x, y, width, height, 20, RGB(246, 252, 255), 58);
+
+    i32 nav_x = x + 14;
+    draw_file_command_button(FILE_CMD_BACK, nav_x, layout.nav_y, 28); nav_x += 32;
+    draw_file_command_button(FILE_CMD_FORWARD, nav_x, layout.nav_y, 28); nav_x += 32;
+    draw_file_command_button(FILE_CMD_UP, nav_x, layout.nav_y, 28); nav_x += 32;
+    draw_file_command_button(FILE_CMD_REFRESH, nav_x, layout.nav_y, 28);
+
+    gfx_blur_round_rect(layout.address_x, layout.nav_y, layout.address_w, 26, 10);
+    gfx_refract_round_rect_edges(layout.address_x, layout.nav_y, layout.address_w, 26, 10, 1);
+    gfx_fill_round_rect_plain_alpha(layout.address_x, layout.nav_y, layout.address_w, 26, 10, RGB(255, 255, 255), 178);
+    gfx_draw_round_rect_alpha(layout.address_x, layout.nav_y, layout.address_w, 26, 10, RGB(184, 202, 218), 42);
+    if (path_is_home(files_current_path)) {
+        gfx_draw_text(layout.address_x + 12, layout.nav_y + 9, "Home", theme->text, 1);
+    } else {
+        gfx_draw_text(layout.address_x + 12, layout.nav_y + 9, "Home", RGB(76, 88, 100), 1);
+        gfx_draw_text(layout.address_x + 48, layout.nav_y + 9, ">", RGB(112, 124, 136), 1);
+        draw_text_trimmed(layout.address_x + 66, layout.nav_y + 9, files_current_path[0] ? files_current_path : "LiquidOS", 28, theme->text);
     }
 
-    gfx_liquid_glass_rect(search_x, toolbar_y, search_w, 28, 14);
-    gfx_fill_round_rect_alpha(search_x, toolbar_y, search_w, 28, 14, RGB(255, 255, 255), files_search_editing ? 88 : 48);
-    gfx_draw_text(search_x + 12, toolbar_y + 9, files_search[0] ? files_search : "Search", files_search[0] ? theme->text : RGB(112, 124, 136), 1);
+    gfx_blur_round_rect(layout.search_x, layout.nav_y, layout.search_w, 26, 10);
+    gfx_refract_round_rect_edges(layout.search_x, layout.nav_y, layout.search_w, 26, 10, 1);
+    gfx_fill_round_rect_plain_alpha(layout.search_x, layout.nav_y, layout.search_w, 26, 10, RGB(255, 255, 255), files_search_editing ? 214 : 178);
+    gfx_draw_round_rect_alpha(layout.search_x, layout.nav_y, layout.search_w, 26, 10, RGB(184, 202, 218), files_search_editing ? 78 : 42);
+    gfx_draw_text(layout.search_x + 12, layout.nav_y + 9, files_search[0] ? files_search : "Search", files_search[0] ? theme->text : RGB(112, 124, 136), 1);
 
-    draw_glass_panel(x + 10, y + 58, sidebar_w - 18, height - 70, 18);
-    gfx_draw_text(x + 24, y + 72, "Locations", theme->text, 1);
-    i32 loc_y = y + 96;
+    gfx_fill_round_rect_plain_alpha(x + 8, layout.command_y - 5, width - 16, 34, 12, RGB(255, 255, 255), 116);
+    gfx_draw_round_rect_alpha(x + 8, layout.command_y - 5, width - 16, 34, 12, RGB(176, 194, 210), 24);
+    i32 bx = x + 12;
+    i32 details_w = file_command_width(FILE_CMD_DETAILS);
+    i32 details_x = x + width - details_w - 14;
+    #define DRAW_FILE_BAR_COMMAND(command_value) \
+        do { \
+            FileCommand command = (command_value); \
+            i32 button_w = file_command_width(command); \
+            if (bx + button_w <= details_x - 12) { \
+                draw_file_command_button(command, bx, layout.command_y, button_w); \
+                bx += button_w + 7; \
+            } \
+        } while (0)
+    DRAW_FILE_BAR_COMMAND(FILE_CMD_NEW_FOLDER);
+    DRAW_FILE_BAR_COMMAND(FILE_CMD_CUT);
+    DRAW_FILE_BAR_COMMAND(FILE_CMD_COPY);
+    DRAW_FILE_BAR_COMMAND(FILE_CMD_PASTE);
+    DRAW_FILE_BAR_COMMAND(FILE_CMD_RENAME);
+    DRAW_FILE_BAR_COMMAND(FILE_CMD_DELETE);
+    DRAW_FILE_BAR_COMMAND(FILE_CMD_SORT);
+    DRAW_FILE_BAR_COMMAND(FILE_CMD_VIEW);
+    DRAW_FILE_BAR_COMMAND(FILE_CMD_FILTER);
+    #undef DRAW_FILE_BAR_COMMAND
+    draw_file_command_button(FILE_CMD_DETAILS, details_x, layout.command_y, details_w);
+
+    gfx_fill_round_rect_plain_alpha(x + 8, layout.body_y - 2, layout.sidebar_w - 16, layout.body_h + 8, 16, RGB(247, 250, 253), 178);
+    gfx_draw_round_rect_alpha(x + 8, layout.body_y - 2, layout.sidebar_w - 16, layout.body_h + 8, 16, RGB(198, 214, 228), 32);
+    gfx_draw_text(x + 22, layout.body_y + 10, "Home", theme->text, 1);
+    i32 loc_y = layout.body_y + 32;
     for (size_t i = 0; i < file_location_count(); i++) {
         bool active = file_location_matches(i, files_current_path);
-        gfx_fill_round_rect_alpha(x + 18, loc_y, sidebar_w - 34, 25, 10,
-                                  active ? theme->accent : RGB(255, 255, 255), active ? 82 : 28);
-        draw_file_location_label(i, x + 30, loc_y + 8, active ? RGB(255, 255, 255) : RGB(48, 58, 68));
-        loc_y += 30;
+        gfx_fill_round_rect_plain_alpha(x + 10, loc_y, layout.sidebar_w - 18, 24, 7,
+                                        active ? RGB(220, 234, 250) : RGB(255, 255, 255),
+                                        active ? 220 : 42);
+        draw_location_icon(i, x + 18, loc_y + 5, 14, active);
+        draw_file_location_label(i, x + 38, loc_y + 8, active ? RGB(34, 58, 92) : RGB(48, 58, 68));
+        loc_y += 29;
     }
 
-    gfx_liquid_glass_rect(main_x, y + 56, list_w + preview_w + 10, 42, 16);
-    gfx_fill_round_rect_alpha(main_x, y + 56, list_w + preview_w + 10, 42, 16, RGB(255, 255, 255), 40);
-    gfx_draw_text(main_x + 14, y + 70, files_current_path[0] ? "LiquidOS > " : "LiquidOS", RGB(92, 102, 112), 1);
-    draw_text_trimmed(main_x + 92, y + 70, files_current_path[0] ? files_current_path : "Home", 44, theme->text);
+    gfx_fill_round_rect_plain_alpha(layout.main_x, layout.body_y - 2, layout.main_w, layout.body_h + 8, 18, RGB(255, 255, 255), 202);
+    gfx_draw_round_rect_alpha(layout.main_x, layout.body_y - 2, layout.main_w, layout.body_h + 8, 18, RGB(206, 220, 232), 28);
 
-    gfx_draw_text(main_x + 10, y + 102, "Name", RGB(88, 98, 108), 1);
-    gfx_draw_text(main_x + list_w - 202, y + 102, "Type", RGB(88, 98, 108), 1);
-    gfx_draw_text(main_x + list_w - 132, y + 102, "Size", RGB(88, 98, 108), 1);
-    gfx_draw_text(main_x + list_w - 74, y + 102, "Modified", RGB(88, 98, 108), 1);
-
-    size_t visible_rows = (size_t)((height - 130) / row_h);
-    if (visible_rows > files_entry_count) {
-        visible_rows = files_entry_count;
-    }
-    for (size_t i = 0; i < visible_rows; i++) {
-        FileExplorerEntry *entry = &files_entries[i];
-        bool selected = entry->selected || (i32)i == selected_file_index;
-        i32 ry = row_y + (i32)i * row_h;
-        gfx_fill_round_rect_alpha(main_x, ry, list_w, row_h - 4, 11,
-                                  selected ? RGB(210, 228, 255) : RGB(255, 255, 255), selected ? 132 : 38);
-        gfx_draw_round_rect_alpha(main_x + 8, ry + 9, 16, 16, 5, selected ? theme->accent : RGB(170, 182, 194), 120);
-        if (entry->selected) {
-            gfx_fill_round_rect_alpha(main_x + 11, ry + 12, 10, 10, 4, theme->accent, 220);
+    if (path_is_home(files_current_path)) {
+        gfx_draw_text(layout.main_x + 12, layout.body_y + 14, "Quick access", theme->text, 1);
+        i32 card_w = layout.main_w < 520 ? (layout.main_w - 18) / 2 : (layout.main_w - 34) / 3;
+        i32 card_h = 58;
+        i32 grid_x = layout.main_x + 10;
+        i32 grid_y = layout.body_y + 42;
+        i32 col_count = layout.main_w < 520 ? 2 : 3;
+        for (size_t i = 0; i < files_quick_location_count(); i++) {
+            size_t location = files_quick_location(i);
+            i32 col = (i32)(i % (size_t)col_count);
+            i32 row = (i32)(i / (size_t)col_count);
+            i32 cx = grid_x + col * (card_w + 12);
+            i32 cy = grid_y + row * (card_h + 12);
+            gfx_blur_round_rect(cx, cy, card_w, card_h, 12);
+            gfx_refract_round_rect_edges(cx, cy, card_w, card_h, 12, 1);
+            gfx_fill_round_rect_plain_alpha(cx, cy, card_w, card_h, 12, RGB(248, 252, 255), 156);
+            gfx_draw_round_rect_alpha(cx, cy, card_w, card_h, 12, RGB(184, 204, 220), 38);
+            draw_location_icon(location, cx + 14, cy + 13, 30, false);
+            draw_file_location_label(location, cx + 54, cy + 12, theme->text);
+            gfx_draw_text(cx + 54, cy + 30, "Stored locally", RGB(92, 104, 116), 1);
+            gfx_draw_text(cx + card_w - 20, cy + 30, "*", RGB(122, 134, 146), 1);
         }
-        draw_file_icon(main_x + 32, ry + 4, entry->folder, selected);
-        size_t name_chars = list_w > 330 ? (size_t)((list_w - 300) / 7) : 10;
-        draw_text_trimmed(main_x + 70, ry + 10, entry->name, name_chars, selected ? RGB(22, 55, 94) : theme->text);
-        gfx_draw_text(main_x + list_w - 202, ry + 10, file_type_for_name(entry->name, entry->folder), RGB(88, 98, 108), 1);
-        char size_text[24];
-        char modified_text[24];
-        format_size_text(entry->size, entry->folder, size_text, sizeof(size_text));
-        format_modified_text(entry->modified_tick, modified_text, sizeof(modified_text));
-        gfx_draw_text(main_x + list_w - 132, ry + 10, size_text, RGB(88, 98, 108), 1);
-        gfx_draw_text(main_x + list_w - 74, ry + 10, modified_text, RGB(88, 98, 108), 1);
+
+        i32 recent_y = grid_y + ((files_quick_location_count() + (size_t)col_count - 1) / (size_t)col_count) * (card_h + 12) + 12;
+        gfx_draw_text(layout.main_x + 12, recent_y + 8, "Recent activity", theme->text, 1);
+        gfx_draw_text(layout.main_x + 126, recent_y + 8, "Favorites and shared views coming later", RGB(92, 104, 116), 1);
+
+        i32 empty_y = recent_y + 44;
+        i32 max_empty_y = y + height - 128;
+        if (empty_y > max_empty_y) {
+            empty_y = max_empty_y;
+        }
+        gfx_fill_circle_alpha(layout.main_x + layout.main_w / 2, empty_y + 28, 26, theme->accent, 190);
+        gfx_draw_text(layout.main_x + layout.main_w / 2 - 5, empty_y + 18, "!", RGB(255, 255, 255), 2);
+        gfx_draw_text(layout.main_x + layout.main_w / 2 - 78, empty_y + 68, "Your recent activity will show here", theme->text, 1);
+        gfx_draw_text(layout.main_x + layout.main_w / 2 - 118, empty_y + 86, "You'll get quick access to recently opened files here.", RGB(92, 104, 116), 1);
+    } else {
+        gfx_draw_text(layout.main_x + 12, layout.body_y + 14, files_grid_view ? "Files and folders" : "Name", RGB(88, 98, 108), 1);
+        if (!files_grid_view) {
+            gfx_draw_text(layout.main_x + layout.main_w - 202, layout.body_y + 14, "Type", RGB(88, 98, 108), 1);
+            gfx_draw_text(layout.main_x + layout.main_w - 132, layout.body_y + 14, "Size", RGB(88, 98, 108), 1);
+            gfx_draw_text(layout.main_x + layout.main_w - 74, layout.body_y + 14, "Modified", RGB(88, 98, 108), 1);
+        }
+
+        if (files_grid_view) {
+            i32 card_w = layout.main_w < 520 ? (layout.main_w - 22) / 2 : (layout.main_w - 40) / 3;
+            i32 card_h = 72;
+            i32 grid_x = layout.main_x + 10;
+            i32 grid_y = layout.body_y + 44;
+            i32 col_count = layout.main_w < 520 ? 2 : 3;
+            for (size_t i = 0; i < files_entry_count; i++) {
+                FileExplorerEntry *entry = &files_entries[i];
+                bool selected = entry->selected || (i32)i == selected_file_index;
+                i32 col = (i32)(i % (size_t)col_count);
+                i32 row = (i32)(i / (size_t)col_count);
+                i32 cx = grid_x + col * (card_w + 14);
+                i32 cy = grid_y + row * (card_h + 12);
+                if (cy + card_h > y + height - 14) {
+                    break;
+                }
+                gfx_blur_round_rect(cx, cy, card_w, card_h, 12);
+                gfx_refract_round_rect_edges(cx, cy, card_w, card_h, 12, 1);
+                gfx_fill_round_rect_plain_alpha(cx, cy, card_w, card_h, 12,
+                                                selected ? RGB(220, 236, 255) : RGB(248, 252, 255), selected ? 210 : 156);
+                gfx_draw_round_rect_alpha(cx, cy, card_w, card_h, 12, RGB(184, 204, 220), selected ? 58 : 32);
+                draw_file_icon(cx + 14, cy + 20, entry->folder, selected);
+                draw_text_trimmed(cx + 54, cy + 18, entry->name, (size_t)((card_w - 66) / 7), selected ? RGB(22, 55, 94) : theme->text);
+                gfx_draw_text(cx + 54, cy + 38, file_type_for_name(entry->name, entry->folder), RGB(92, 104, 116), 1);
+            }
+        } else {
+            size_t visible_rows = (size_t)((layout.body_h - 104) / layout.row_h);
+            if (visible_rows > files_entry_count) {
+                visible_rows = files_entry_count;
+            }
+            for (size_t i = 0; i < visible_rows; i++) {
+                FileExplorerEntry *entry = &files_entries[i];
+                bool selected = entry->selected || (i32)i == selected_file_index;
+                i32 ry = layout.list_y + (i32)i * layout.row_h;
+                gfx_fill_round_rect_plain_alpha(layout.main_x + 8, ry, layout.main_w - 16, layout.row_h - 4, 8,
+                                                selected ? RGB(220, 236, 255) : RGB(255, 255, 255), selected ? 218 : 52);
+                gfx_draw_round_rect_alpha(layout.main_x + 10, ry + 9, 16, 16, 5, selected ? theme->accent : RGB(170, 182, 194), 112);
+                if (entry->selected) {
+                    gfx_fill_round_rect_alpha(layout.main_x + 13, ry + 12, 10, 10, 4, theme->accent, 220);
+                }
+                draw_file_icon(layout.main_x + 34, ry + 4, entry->folder, selected);
+                size_t name_chars = layout.main_w > 330 ? (size_t)((layout.main_w - 300) / 7) : 10;
+                draw_text_trimmed(layout.main_x + 72, ry + 10, entry->name, name_chars, selected ? RGB(22, 55, 94) : theme->text);
+                gfx_draw_text(layout.main_x + layout.main_w - 202, ry + 10, file_type_for_name(entry->name, entry->folder), RGB(88, 98, 108), 1);
+                char size_text[24];
+                char modified_text[24];
+                format_size_text(entry->size, entry->folder, size_text, sizeof(size_text));
+                format_modified_text(entry->modified_tick, modified_text, sizeof(modified_text));
+                gfx_draw_text(layout.main_x + layout.main_w - 132, ry + 10, size_text, RGB(88, 98, 108), 1);
+                gfx_draw_text(layout.main_x + layout.main_w - 74, ry + 10, modified_text, RGB(88, 98, 108), 1);
+            }
+        }
+
+        if (files_entry_count == 0) {
+            gfx_draw_text(layout.main_x + 18, layout.list_y + 16, "This folder is empty.", RGB(94, 106, 118), 1);
+        }
     }
 
-    if (files_entry_count == 0) {
-        gfx_draw_text(main_x + 18, row_y + 16, "This folder is empty.", RGB(94, 106, 118), 1);
-    }
-
-    if (preview_w > 0) {
-        i32 px = main_x + list_w + 12;
-        draw_glass_panel(px, row_y, preview_w, height - 126, 18);
+    if (layout.preview_w > 0) {
+        i32 px = layout.preview_x;
+        gfx_blur_round_rect(px, layout.body_y - 2, layout.preview_w, layout.body_h + 8, 18);
+        gfx_refract_round_rect_edges(px, layout.body_y - 2, layout.preview_w, layout.body_h + 8, 18, 1);
+        gfx_fill_round_rect_plain_alpha(px, layout.body_y - 2, layout.preview_w, layout.body_h + 8, 18, RGB(248, 252, 255), 190);
+        gfx_draw_round_rect_alpha(px, layout.body_y - 2, layout.preview_w, layout.body_h + 8, 18, RGB(194, 212, 226), 34);
         FileExplorerEntry *selected = files_primary_entry();
-        gfx_draw_text(px + 14, row_y + 16, "Details", theme->text, 1);
+        gfx_draw_text(px + 14, layout.body_y + 16, "Details", theme->text, 1);
         if (selected) {
-            draw_file_icon(px + 16, row_y + 44, selected->folder, true);
-            draw_text_trimmed(px + 54, row_y + 50, selected->name, 17, theme->text);
-            gfx_draw_text(px + 16, row_y + 92, "Type", RGB(100, 112, 124), 1);
-            gfx_draw_text(px + 74, row_y + 92, file_type_for_name(selected->name, selected->folder), theme->text, 1);
+            draw_file_icon(px + 16, layout.body_y + 44, selected->folder, true);
+            draw_text_trimmed(px + 54, layout.body_y + 50, selected->name, 17, theme->text);
+            gfx_draw_text(px + 16, layout.body_y + 92, "Type", RGB(100, 112, 124), 1);
+            gfx_draw_text(px + 74, layout.body_y + 92, file_type_for_name(selected->name, selected->folder), theme->text, 1);
             char size_text[24];
             char modified_text[24];
             format_size_text(selected->size, selected->folder, size_text, sizeof(size_text));
             format_modified_text(selected->modified_tick, modified_text, sizeof(modified_text));
-            gfx_draw_text(px + 16, row_y + 116, "Size", RGB(100, 112, 124), 1);
-            gfx_draw_text(px + 74, row_y + 116, size_text, theme->text, 1);
-            gfx_draw_text(px + 16, row_y + 140, "Modified", RGB(100, 112, 124), 1);
-            gfx_draw_text(px + 88, row_y + 140, modified_text, theme->text, 1);
-            gfx_draw_text(px + 16, row_y + 166, "Path", RGB(100, 112, 124), 1);
-            draw_text_trimmed(px + 16, row_y + 184, selected->path, 22, theme->text);
+            gfx_draw_text(px + 16, layout.body_y + 116, "Size", RGB(100, 112, 124), 1);
+            gfx_draw_text(px + 74, layout.body_y + 116, size_text, theme->text, 1);
+            gfx_draw_text(px + 16, layout.body_y + 140, "Modified", RGB(100, 112, 124), 1);
+            gfx_draw_text(px + 88, layout.body_y + 140, modified_text, theme->text, 1);
+            gfx_draw_text(px + 16, layout.body_y + 166, "Path", RGB(100, 112, 124), 1);
+            draw_text_trimmed(px + 16, layout.body_y + 184, selected->path, 22, theme->text);
             if (!selected->folder) {
                 const FsFile *file = fs_find(selected->path);
-                gfx_draw_text(px + 16, row_y + 214, "Preview", RGB(100, 112, 124), 1);
-                draw_text_trimmed(px + 16, row_y + 232, file && file->contents[0] ? file->contents : "(empty file)", 22, theme->text);
+                gfx_draw_text(px + 16, layout.body_y + 214, "Preview", RGB(100, 112, 124), 1);
+                draw_text_trimmed(px + 16, layout.body_y + 232, file && file->contents[0] ? file->contents : "(empty file)", 22, theme->text);
             }
+        } else {
+            gfx_draw_text(px + 16, layout.body_y + 50, "Select a file or folder", RGB(92, 104, 116), 1);
+            gfx_draw_text(px + 16, layout.body_y + 70, "Details appear here.", RGB(112, 124, 136), 1);
         }
         if (files_clipboard_mode != FILE_CLIPBOARD_EMPTY) {
             gfx_draw_text(px + 16, y + height - 34, files_clipboard_mode == FILE_CLIPBOARD_COPY ? "Clipboard: copy" : "Clipboard: cut",
@@ -2736,6 +3124,9 @@ static void draw_taskbar(void) {
                              tile_size, child_radius, icon_size,
                              app->pixels, app->icon_width, app->icon_height,
                              app->tile_top, app->tile_bottom, app->small_artwork);
+        if (app->window == WINDOW_SETTINGS) {
+            draw_settings_dock_glyph(bar.slot_x + i * bar.slot_step, bar.slot_y, tile_size);
+        }
     }
     if (dock_grip_visible || dock_resizing || hover_zone == 0 || hover_zone == 2) {
         draw_dock_resize_grip(&bar);
@@ -2761,7 +3152,7 @@ void ui_init(const BootInfo *boot) {
 
     windows[WINDOW_TERMINAL] = make_window(90, 160, 720, 410, "Terminal");
     windows[WINDOW_BROWSER] = make_window(180, 180, 820, 500, "Liqueia");
-    windows[WINDOW_FILES] = make_window(320, 260, 660, 400, "Files");
+    windows[WINDOW_FILES] = make_window(240, 185, 820, 520, "Files");
     windows[WINDOW_STORE] = make_window(240, 170, 720, 430, "Store");
     windows[WINDOW_SETTINGS] = make_window(280, 210, 660, 390, "System Settings");
     windows[WINDOW_LAUNCHER] = make_window(260, 150, 600, 410, "Launch Apps");

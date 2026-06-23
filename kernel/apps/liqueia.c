@@ -5,7 +5,10 @@
 
 #define LIQUEIA_MAX_TABS 3
 #define LIQUEIA_MAX_HISTORY 6
-#define LIQUEIA_URL_LENGTH 96
+#define LIQUEIA_URL_LENGTH 192
+#define LIQUEIA_BODY_LENGTH 8192
+#define LIQUEIA_TEXT_LENGTH 3072
+#define LIQUEIA_MIME_LENGTH 48
 
 typedef enum LiqueiaPage {
     LIQUEIA_NEW_TAB,
@@ -20,10 +23,15 @@ typedef struct LiqueiaTab {
     char address[LIQUEIA_URL_LENGTH];
     char previous[LIQUEIA_URL_LENGTH];
     char forward[LIQUEIA_URL_LENGTH];
+    char body[LIQUEIA_BODY_LENGTH];
+    char display_text[LIQUEIA_TEXT_LENGTH];
+    char mime[LIQUEIA_MIME_LENGTH];
+    NetResponse response;
     LiqueiaPage page;
     LiqueiaPage previous_page;
     LiqueiaPage forward_page;
     bool bookmarked;
+    bool response_ready;
 } LiqueiaTab;
 
 static LiqueiaTab tabs[LIQUEIA_MAX_TABS];
@@ -43,12 +51,419 @@ static bool starts_with(const char *text, const char *prefix) {
     return strncmp(text, prefix, strlen(prefix)) == 0;
 }
 
+static char ascii_lower(char ch) {
+    return ch >= 'A' && ch <= 'Z' ? (char)(ch + ('a' - 'A')) : ch;
+}
+
+static bool starts_with_ci(const char *text, const char *prefix) {
+    while (*prefix) {
+        if (ascii_lower(*text) != ascii_lower(*prefix)) {
+            return false;
+        }
+        text++;
+        prefix++;
+    }
+    return true;
+}
+
+static bool contains_char(const char *text, char ch) {
+    while (*text) {
+        if (*text == ch) {
+            return true;
+        }
+        text++;
+    }
+    return false;
+}
+
 static void set_address(LiqueiaTab *tab, const char *address) {
     strncpy(tab->address, address, LIQUEIA_URL_LENGTH - 1);
     tab->address[LIQUEIA_URL_LENGTH - 1] = 0;
 }
 
-static LiqueiaPage page_for_address(const char *address) {
+static void append_text(char *dest, size_t dest_size, const char *src) {
+    size_t used = strlen(dest);
+    while (*src && used + 1 < dest_size) {
+        dest[used++] = *src++;
+    }
+    dest[used] = 0;
+}
+
+static void copy_trimmed(const char *input, char *out, size_t out_size) {
+    size_t start = 0;
+    size_t end = strlen(input);
+    while (input[start] == ' ' || input[start] == '\t') {
+        start++;
+    }
+    while (end > start && (input[end - 1] == ' ' || input[end - 1] == '\t')) {
+        end--;
+    }
+
+    size_t used = 0;
+    while (start < end && used + 1 < out_size) {
+        out[used++] = input[start++];
+    }
+    out[used] = 0;
+}
+
+static bool is_url_unreserved(char ch) {
+    return (ch >= 'a' && ch <= 'z') ||
+           (ch >= 'A' && ch <= 'Z') ||
+           (ch >= '0' && ch <= '9') ||
+           ch == '-' || ch == '_' || ch == '.' || ch == '~';
+}
+
+static char hex_digit(u8 value) {
+    value &= 0x0F;
+    return value < 10 ? (char)('0' + value) : (char)('A' + value - 10);
+}
+
+static void append_url_encoded(char *dest, size_t dest_size, const char *text) {
+    size_t used = strlen(dest);
+    while (*text && used + 1 < dest_size) {
+        unsigned char ch = (unsigned char)*text++;
+        if (ch == ' ') {
+            dest[used++] = '+';
+        } else if (is_url_unreserved((char)ch)) {
+            dest[used++] = (char)ch;
+        } else if (used + 3 < dest_size) {
+            dest[used++] = '%';
+            dest[used++] = hex_digit((u8)(ch >> 4));
+            dest[used++] = hex_digit((u8)ch);
+        }
+    }
+    dest[used] = 0;
+}
+
+static void build_google_search_url(const char *query, char *out, size_t out_size) {
+    out[0] = 0;
+    append_text(out, out_size, "http://suggestqueries.google.com/complete/search?client=firefox&q=");
+    append_url_encoded(out, out_size, query);
+}
+
+static void normalize_address_input(const char *input, char *out, size_t out_size) {
+    char trimmed[LIQUEIA_URL_LENGTH];
+    copy_trimmed(input, trimmed, sizeof(trimmed));
+    if (!trimmed[0]) {
+        strncpy(out, "liqueia://newtab", out_size - 1);
+        out[out_size - 1] = 0;
+        return;
+    }
+
+    if (starts_with_ci(trimmed, "http://") ||
+        starts_with_ci(trimmed, "https://") ||
+        starts_with_ci(trimmed, "liqueia://")) {
+        strncpy(out, trimmed, out_size - 1);
+        out[out_size - 1] = 0;
+        return;
+    }
+
+    bool has_space = contains_char(trimmed, ' ') || contains_char(trimmed, '\t');
+    bool looks_like_host = contains_char(trimmed, '.') ||
+                           starts_with_ci(trimmed, "liquidos.local") ||
+                           starts_with_ci(trimmed, "store.liquidos.local");
+    if (!has_space && looks_like_host) {
+        out[0] = 0;
+        append_text(out, out_size, "http://");
+        append_text(out, out_size, trimmed);
+        return;
+    }
+
+    build_google_search_url(trimmed, out, out_size);
+}
+
+static bool line_equals(const char *line, const char *value) {
+    while (*line && *value) {
+        if (ascii_lower(*line) != ascii_lower(*value)) {
+            return false;
+        }
+        line++;
+        value++;
+    }
+    return *line == 0 && *value == 0;
+}
+
+static bool skip_display_line(const char *line) {
+    static const char *noise[] = {
+        "Please click",
+        "here",
+        "if you are not redirected within a few seconds.",
+        "All",
+        "Images",
+        "Maps",
+        "Videos",
+        "News",
+        "Books",
+        "Search tools",
+        "Any time",
+        "Past hour",
+        "Past 24 hours",
+        "Past week",
+        "Past month",
+        "Past year",
+        "All results",
+        "Verbatim",
+        "People also search for",
+        "Next >",
+        "From your IP address",
+        "Learn more",
+        "Sign in",
+        "Settings",
+        "Privacy",
+        "Terms",
+        "Dark theme: Off",
+    };
+
+    for (size_t i = 0; i < sizeof(noise) / sizeof(noise[0]); i++) {
+        if (line_equals(line, noise[i])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void append_display_line(char *out, size_t out_size, const char *line) {
+    char trimmed[160];
+    copy_trimmed(line, trimmed, sizeof(trimmed));
+    if (strlen(trimmed) < 3 || skip_display_line(trimmed)) {
+        return;
+    }
+    append_text(out, out_size, trimmed);
+    append_text(out, out_size, "\n");
+}
+
+static const char *find_after_ci(const char *text, const char *needle) {
+    size_t needle_len = strlen(needle);
+    while (*text) {
+        bool match = true;
+        for (size_t i = 0; i < needle_len; i++) {
+            if (!text[i] || ascii_lower(text[i]) != ascii_lower(needle[i])) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            return text + needle_len;
+        }
+        text++;
+    }
+    return text;
+}
+
+static void append_entity_char(char *line, size_t line_size, size_t *line_used, const char **cursor) {
+    const char *p = *cursor;
+    char ch = 0;
+    if (starts_with(p, "&amp;")) {
+        ch = '&';
+        p += 5;
+    } else if (starts_with(p, "&lt;")) {
+        ch = '<';
+        p += 4;
+    } else if (starts_with(p, "&gt;")) {
+        ch = '>';
+        p += 4;
+    } else if (starts_with(p, "&quot;")) {
+        ch = '"';
+        p += 6;
+    } else if (starts_with(p, "&#39;")) {
+        ch = '\'';
+        p += 5;
+    } else if (starts_with(p, "&nbsp;")) {
+        ch = ' ';
+        p += 6;
+    } else {
+        ch = ' ';
+        while (*p && *p != ';' && p - *cursor < 10) {
+            p++;
+        }
+        if (*p == ';') {
+            p++;
+        }
+    }
+
+    if (*line_used + 1 < line_size) {
+        line[(*line_used)++] = ch;
+        line[*line_used] = 0;
+    }
+    *cursor = p;
+}
+
+static void format_html_as_text(const char *html, char *out, size_t out_size) {
+    out[0] = 0;
+    char line[160];
+    size_t line_used = 0;
+    bool last_space = false;
+    line[0] = 0;
+
+    const char *p = html;
+    while (*p && strlen(out) + 1 < out_size) {
+        if (starts_with_ci(p, "<script")) {
+            p = find_after_ci(p, "</script>");
+            continue;
+        }
+        if (starts_with_ci(p, "<style")) {
+            p = find_after_ci(p, "</style>");
+            continue;
+        }
+        if (*p == '<') {
+            bool line_break = starts_with_ci(p, "<br") ||
+                              starts_with_ci(p, "<li") ||
+                              starts_with_ci(p, "</a") ||
+                              starts_with_ci(p, "</p") ||
+                              starts_with_ci(p, "</div") ||
+                              starts_with_ci(p, "</h");
+            while (*p && *p != '>') {
+                p++;
+            }
+            if (*p == '>') {
+                p++;
+            }
+            if (line_break && line_used > 0) {
+                append_display_line(out, out_size, line);
+                line_used = 0;
+                line[0] = 0;
+                last_space = false;
+            }
+            continue;
+        }
+
+        if (*p == '&') {
+            append_entity_char(line, sizeof(line), &line_used, &p);
+            last_space = false;
+            continue;
+        }
+
+        char ch = *p++;
+        if (ch == '\r' || ch == '\n' || ch == '\t') {
+            ch = ' ';
+        }
+        if (ch == ' ') {
+            if (last_space || line_used == 0) {
+                continue;
+            }
+            last_space = true;
+        } else {
+            last_space = false;
+        }
+        if (line_used + 1 < sizeof(line)) {
+            line[line_used++] = ch;
+            line[line_used] = 0;
+        } else {
+            append_display_line(out, out_size, line);
+            line_used = 0;
+            line[0] = 0;
+            last_space = false;
+        }
+    }
+
+    if (line_used > 0) {
+        append_display_line(out, out_size, line);
+    }
+}
+
+static void format_google_suggestions(const char *json, char *out, size_t out_size) {
+    out[0] = 0;
+    append_text(out, out_size, "Google search suggestions\n");
+
+    i32 depth = 0;
+    bool in_string = false;
+    bool escaping = false;
+    bool capture = false;
+    char item[120];
+    size_t item_used = 0;
+    u32 count = 0;
+
+    for (const char *p = json; *p && count < 8; p++) {
+        char ch = *p;
+        if (!in_string) {
+            if (ch == '[') {
+                depth++;
+            } else if (ch == ']') {
+                depth--;
+            } else if (ch == '"') {
+                in_string = true;
+                escaping = false;
+                capture = depth == 2;
+                item_used = 0;
+                item[0] = 0;
+            }
+            continue;
+        }
+
+        if (escaping) {
+            if (capture && item_used + 1 < sizeof(item)) {
+                item[item_used++] = ch;
+                item[item_used] = 0;
+            }
+            escaping = false;
+            continue;
+        }
+        if (ch == '\\') {
+            escaping = true;
+            continue;
+        }
+        if (ch == '"') {
+            in_string = false;
+            if (capture && item[0]) {
+                append_text(out, out_size, "- ");
+                append_text(out, out_size, item);
+                append_text(out, out_size, "\n");
+                count++;
+            }
+            capture = false;
+            continue;
+        }
+        if (capture && item_used + 1 < sizeof(item)) {
+            item[item_used++] = ch;
+            item[item_used] = 0;
+        }
+    }
+
+    if (count == 0) {
+        append_text(out, out_size, "Google returned no suggestions for this query.\n");
+    }
+}
+
+static void format_response_text(LiqueiaTab *tab) {
+    tab->display_text[0] = 0;
+    if (starts_with(tab->address, "http://suggestqueries.google.com/complete/search")) {
+        format_google_suggestions(tab->body, tab->display_text, sizeof(tab->display_text));
+    } else if (starts_with(tab->mime, "text/html")) {
+        format_html_as_text(tab->body, tab->display_text, sizeof(tab->display_text));
+        if (!tab->display_text[0]) {
+            strncpy(tab->display_text, "HTML page loaded, but no readable text was found.", sizeof(tab->display_text) - 1);
+            tab->display_text[sizeof(tab->display_text) - 1] = 0;
+        }
+    } else {
+        strncpy(tab->display_text, tab->body, sizeof(tab->display_text) - 1);
+        tab->display_text[sizeof(tab->display_text) - 1] = 0;
+    }
+}
+
+static void cache_response(LiqueiaTab *tab, NetResponse fetched) {
+    strncpy(tab->body, fetched.body ? fetched.body : "", sizeof(tab->body) - 1);
+    tab->body[sizeof(tab->body) - 1] = 0;
+    strncpy(tab->mime, fetched.mime ? fetched.mime : "text/plain", sizeof(tab->mime) - 1);
+    tab->mime[sizeof(tab->mime) - 1] = 0;
+    tab->response = fetched;
+    tab->response.body = tab->body;
+    tab->response.mime = tab->mime;
+    tab->response.size = strlen(tab->body);
+    tab->response_ready = true;
+    format_response_text(tab);
+}
+
+static void clear_response(LiqueiaTab *tab) {
+    tab->body[0] = 0;
+    tab->display_text[0] = 0;
+    strcpy(tab->mime, "text/plain");
+    tab->response = (NetResponse){ false, 0, tab->mime, tab->body, 0, "" };
+    tab->response_ready = false;
+}
+
+static LiqueiaPage load_page_for_tab(LiqueiaTab *tab) {
+    clear_response(tab);
+    const char *address = tab->address;
     if (!address[0] || strcmp(address, "liqueia://newtab") == 0) {
         return LIQUEIA_NEW_TAB;
     }
@@ -61,7 +476,9 @@ static LiqueiaPage page_for_address(const char *address) {
     if (strcmp(address, "liqueia://settings") == 0) {
         return LIQUEIA_SETTINGS;
     }
-    if (network_fetch(address).ok) {
+    NetResponse fetched = network_fetch(address);
+    cache_response(tab, fetched);
+    if (fetched.ok) {
         return LIQUEIA_WEB;
     }
     return LIQUEIA_OFFLINE;
@@ -83,13 +500,15 @@ static void add_history(const char *address) {
 
 static void navigate_to(const char *address, bool record_navigation) {
     LiqueiaTab *tab = &tabs[active_tab];
+    char normalized[LIQUEIA_URL_LENGTH];
+    normalize_address_input(address, normalized, sizeof(normalized));
     if (record_navigation) {
         strcpy(tab->previous, editing_address ? address_before_edit : tab->address);
         tab->previous_page = editing_address ? page_before_edit : tab->page;
         tab->forward[0] = 0;
     }
-    set_address(tab, address[0] ? address : "liqueia://newtab");
-    tab->page = page_for_address(tab->address);
+    set_address(tab, normalized);
+    tab->page = load_page_for_tab(tab);
     tab->bookmarked = false;
     add_history(tab->address);
     editing_address = false;
@@ -103,7 +522,7 @@ static void navigate_back(void) {
     strcpy(tab->forward, tab->address);
     tab->forward_page = tab->page;
     strcpy(tab->address, tab->previous);
-    tab->page = tab->previous_page;
+    tab->page = load_page_for_tab(tab);
     tab->previous[0] = 0;
     editing_address = false;
 }
@@ -116,7 +535,7 @@ static void navigate_forward(void) {
     strcpy(tab->previous, tab->address);
     tab->previous_page = tab->page;
     strcpy(tab->address, tab->forward);
-    tab->page = tab->forward_page;
+    tab->page = load_page_for_tab(tab);
     tab->forward[0] = 0;
     editing_address = false;
 }
@@ -249,10 +668,10 @@ static void draw_new_tab(i32 x, i32 y, i32 width, i32 height) {
     gfx_draw_text(x + 124, y + 180, "A calmer way to explore.", RGB(246, 238, 222), 2);
     gfx_draw_text(x + 124, y + 209, "Liqueia for LiquidOS", RGB(216, 170, 88), 1);
     gfx_fill_round_rect_plain_alpha(x + 56, y + 230, width - 112, 54, 20, RGB(37, 38, 46), 255);
-    gfx_draw_text(x + 76, y + 248, "Search or enter an address", RGB(166, 166, 174), 1);
+    gfx_draw_text(x + 76, y + 248, "Search Google or enter an address", RGB(166, 166, 174), 1);
     gfx_draw_text(x + 56, y + 305, "NATIVE APP", RGB(216, 170, 88), 1);
-    gfx_draw_text(x + 56, y + 326, "Tabs, local pages, history, bookmarks and keyboard input are ready.", RGB(205, 205, 212), 1);
-    gfx_draw_text(x + 56, y + 347, "Try http://liquidos.local/ or http://liquidos.local/store", RGB(136, 137, 146), 1);
+    gfx_draw_text(x + 56, y + 326, "Type a search and press Enter. Liqueia uses Google by default.", RGB(205, 205, 212), 1);
+    gfx_draw_text(x + 56, y + 347, "Try liquidos, example.com, or http://liquidos.local/store", RGB(136, 137, 146), 1);
 }
 
 static void draw_list_page(i32 x, i32 y, i32 width, i32 height, LiqueiaPage page) {
@@ -298,28 +717,28 @@ static void draw_list_page(i32 x, i32 y, i32 width, i32 height, LiqueiaPage page
 
 static void draw_offline(i32 x, i32 y, i32 width, i32 height) {
     LiqueiaTab *tab = &tabs[active_tab];
-    NetResponse fetched = network_fetch(tab->address);
+    NetResponse fetched = tab->response;
     gfx_fill_round_rect_plain_alpha(x + 24, y + 152, width - 48, height - 172, 24, RGB(24, 25, 32), 255);
     gfx_fill_circle_alpha(x + width - 112, y + 210, 66, RGB(216, 170, 88), 20);
     gfx_draw_text(x + 52, y + 184, "This journey needs a network.", RGB(246, 238, 222), 2);
     gfx_draw_text(x + 52, y + 224, "Liqueia accepted the address:", RGB(153, 153, 162), 1);
     draw_text_trimmed(x + 52, y + 248, tab->address, 58, RGB(216, 170, 88));
     gfx_draw_text(x + 52, y + 286, fetched.message, RGB(205, 205, 212), 1);
-    gfx_draw_text(x + 52, y + 307, "Use liquidos.local routes now; real NIC/TCP/TLS drivers come next.", RGB(136, 137, 146), 1);
+    gfx_draw_text(x + 52, y + 307, "Run through scripts/run-qemu.sh for RTL8139 DNS/TCP/HTTP networking.", RGB(136, 137, 146), 1);
 }
 
 static void draw_web_page(i32 x, i32 y, i32 width, i32 height) {
     LiqueiaTab *tab = &tabs[active_tab];
-    NetResponse fetched = network_fetch(tab->address);
+    NetResponse fetched = tab->response;
     gfx_fill_round_rect_plain_alpha(x + 24, y + 152, width - 48, height - 172, 24, RGB(24, 25, 32), 255);
     gfx_fill_circle_alpha(x + width - 110, y + 205, 72, RGB(86, 155, 255), 20);
     gfx_draw_text(x + 52, y + 184, fetched.status == 200 ? "Page loaded" : "Request failed", RGB(246, 238, 222), 2);
     gfx_draw_text(x + 52, y + 216, fetched.mime, RGB(216, 170, 88), 1);
-    draw_text_trimmed(x + 52, y + 242, fetched.body, 60, RGB(205, 205, 212));
+    draw_text_trimmed(x + 52, y + 242, fetched.message, 60, RGB(205, 205, 212));
 
-    const char *line = fetched.body;
+    const char *line = tab->display_text;
     i32 row = 0;
-    while (*line && row < 7) {
+    while (*line && row < 9) {
         char text[72];
         size_t used = 0;
         while (line[used] && line[used] != '\n' && used + 1 < sizeof(text)) {

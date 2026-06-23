@@ -42,7 +42,7 @@
 #define TX_BUFFER_SIZE 2048
 #define NET_PACKET_SIZE 1536
 #define HTTP_RAW_SIZE 4096
-#define HTTP_BODY_SIZE 3072
+#define HTTP_BODY_SIZE 8192
 
 typedef struct NetRoute {
     const char *url;
@@ -124,8 +124,8 @@ static const u8 local_ip[4] = { 10, 0, 2, 15 };
 static const u8 gateway_ip[4] = { 10, 0, 2, 2 };
 static const u8 dns_ip[4] = { 10, 0, 2, 3 };
 
-static u8 rx_buffer[RX_BUFFER_SIZE] __attribute__((aligned(4)));
-static u8 tx_buffers[4][TX_BUFFER_SIZE] __attribute__((aligned(4)));
+static u8 rx_buffer[RX_BUFFER_SIZE] __attribute__((section(".dma"), aligned(16)));
+static u8 tx_buffers[4][TX_BUFFER_SIZE] __attribute__((section(".dma"), aligned(16)));
 static u8 net_packet[NET_PACKET_SIZE];
 static char http_raw[HTTP_RAW_SIZE];
 static char http_body[HTTP_BODY_SIZE];
@@ -133,6 +133,21 @@ static char http_mime[48];
 
 static bool starts_with(const char *text, const char *prefix) {
     return strncmp(text, prefix, strlen(prefix)) == 0;
+}
+
+static char ascii_lower(char ch) {
+    return ch >= 'A' && ch <= 'Z' ? (char)(ch + ('a' - 'A')) : ch;
+}
+
+static bool starts_with_ci(const char *text, const char *prefix) {
+    while (*prefix) {
+        if (ascii_lower(*text) != ascii_lower(*prefix)) {
+            return false;
+        }
+        text++;
+        prefix++;
+    }
+    return true;
 }
 
 static void append_text(char *dest, size_t dest_size, const char *src) {
@@ -197,6 +212,90 @@ static NetResponse response(bool ok, u16 status, const char *mime, const char *b
     strncpy(out.message, message, sizeof(out.message) - 1);
     out.message[sizeof(out.message) - 1] = 0;
     return out;
+}
+
+static bool header_contains_token(const char *headers, const char *name, const char *token) {
+    size_t token_len = strlen(token);
+    const char *line = headers;
+    while (*line) {
+        const char *line_end = line;
+        while (*line_end && !(line_end[0] == '\r' && line_end[1] == '\n')) {
+            line_end++;
+        }
+        if (starts_with_ci(line, name)) {
+            for (const char *p = line + strlen(name); p + token_len <= line_end; p++) {
+                bool match = true;
+                for (size_t i = 0; i < token_len; i++) {
+                    if (ascii_lower(p[i]) != ascii_lower(token[i])) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    return true;
+                }
+            }
+        }
+        if (!*line_end) {
+            return false;
+        }
+        line = line_end + 2;
+        if (line[0] == '\r' && line[1] == '\n') {
+            return false;
+        }
+    }
+    return false;
+}
+
+static i32 hex_value(char ch) {
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return 10 + ch - 'a';
+    }
+    if (ch >= 'A' && ch <= 'F') {
+        return 10 + ch - 'A';
+    }
+    return -1;
+}
+
+static void decode_chunked_body(const char *body, char *out, size_t out_size) {
+    size_t used = 0;
+    const char *cursor = body;
+    while (*cursor && used + 1 < out_size) {
+        while (*cursor == '\r' || *cursor == '\n') {
+            cursor++;
+        }
+
+        u32 chunk_size = 0;
+        bool saw_digit = false;
+        while (*cursor) {
+            i32 value = hex_value(*cursor);
+            if (value < 0) {
+                break;
+            }
+            saw_digit = true;
+            chunk_size = chunk_size * 16 + (u32)value;
+            cursor++;
+        }
+        if (!saw_digit || chunk_size == 0) {
+            break;
+        }
+
+        while (*cursor && *cursor != '\n') {
+            cursor++;
+        }
+        if (*cursor == '\n') {
+            cursor++;
+        }
+
+        for (u32 i = 0; i < chunk_size && cursor[i] && used + 1 < out_size; i++) {
+            out[used++] = cursor[i];
+        }
+        cursor += chunk_size;
+    }
+    out[used] = 0;
 }
 
 static u32 pci_read32(u8 bus, u8 slot, u8 func, u8 offset) {
@@ -659,6 +758,147 @@ static bool poll_tcp(const u8 *remote_ip, u16 local_port, const u8 **tcp, size_t
     return false;
 }
 
+typedef struct HttpBodyStream {
+    size_t used;
+    bool chunked;
+    u8 chunk_state;
+    u32 chunk_size;
+    u32 chunk_remaining;
+} HttpBodyStream;
+
+#define CHUNK_SIZE_STATE 0
+#define CHUNK_EXT_STATE 1
+#define CHUNK_SIZE_LF_STATE 2
+#define CHUNK_DATA_STATE 3
+#define CHUNK_DATA_LF_STATE 4
+#define CHUNK_DONE_STATE 5
+
+static void http_body_stream_init(HttpBodyStream *stream, bool chunked) {
+    stream->used = 0;
+    stream->chunked = chunked;
+    stream->chunk_state = CHUNK_SIZE_STATE;
+    stream->chunk_size = 0;
+    stream->chunk_remaining = 0;
+    http_body[0] = 0;
+}
+
+static void http_body_append(HttpBodyStream *stream, char ch) {
+    if (stream->used + 1 >= sizeof(http_body)) {
+        return;
+    }
+    http_body[stream->used++] = ch;
+    http_body[stream->used] = 0;
+}
+
+static void http_body_stream_byte(HttpBodyStream *stream, char ch) {
+    if (!stream->chunked) {
+        http_body_append(stream, ch);
+        return;
+    }
+
+    switch (stream->chunk_state) {
+        case CHUNK_SIZE_STATE: {
+            i32 value = hex_value(ch);
+            if (value >= 0) {
+                stream->chunk_size = stream->chunk_size * 16 + (u32)value;
+            } else if (ch == ';') {
+                stream->chunk_state = CHUNK_EXT_STATE;
+            } else if (ch == '\r') {
+                stream->chunk_state = CHUNK_SIZE_LF_STATE;
+            } else if (ch == '\n') {
+                if (stream->chunk_size == 0) {
+                    stream->chunk_state = CHUNK_DONE_STATE;
+                } else {
+                    stream->chunk_remaining = stream->chunk_size;
+                    stream->chunk_state = CHUNK_DATA_STATE;
+                }
+            }
+            break;
+        }
+        case CHUNK_EXT_STATE:
+            if (ch == '\r') {
+                stream->chunk_state = CHUNK_SIZE_LF_STATE;
+            } else if (ch == '\n') {
+                stream->chunk_remaining = stream->chunk_size;
+                stream->chunk_state = stream->chunk_size == 0 ? CHUNK_DONE_STATE : CHUNK_DATA_STATE;
+            }
+            break;
+        case CHUNK_SIZE_LF_STATE:
+            if (ch == '\n') {
+                stream->chunk_remaining = stream->chunk_size;
+                stream->chunk_state = stream->chunk_size == 0 ? CHUNK_DONE_STATE : CHUNK_DATA_STATE;
+            }
+            break;
+        case CHUNK_DATA_STATE:
+            http_body_append(stream, ch);
+            if (stream->chunk_remaining > 0) {
+                stream->chunk_remaining--;
+            }
+            if (stream->chunk_remaining == 0) {
+                stream->chunk_size = 0;
+                stream->chunk_state = CHUNK_DATA_LF_STATE;
+            }
+            break;
+        case CHUNK_DATA_LF_STATE:
+            if (ch == '\n') {
+                stream->chunk_state = CHUNK_SIZE_STATE;
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static void http_body_stream_bytes(HttpBodyStream *stream, const char *data, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        http_body_stream_byte(stream, data[i]);
+    }
+}
+
+static const char *http_header_body_start(const char *raw) {
+    const char *body = raw;
+    while (*body && !(body[0] == '\r' && body[1] == '\n' && body[2] == '\r' && body[3] == '\n')) {
+        body++;
+    }
+    return *body ? body + 4 : NULL;
+}
+
+static void parse_http_headers(u16 *status_out) {
+    *status_out = 0;
+    if (starts_with(http_raw, "HTTP/")) {
+        const char *space = http_raw;
+        while (*space && *space != ' ') {
+            space++;
+        }
+        if (*space == ' ' && space[1] >= '0' && space[1] <= '9') {
+            *status_out = (u16)((space[1] - '0') * 100 + (space[2] - '0') * 10 + (space[3] - '0'));
+        }
+    }
+    if (*status_out == 0) {
+        *status_out = 200;
+    }
+
+    strcpy(http_mime, "text/html");
+    const char *ct = http_raw;
+    while (*ct) {
+        if ((ct[0] == 'C' || ct[0] == 'c') &&
+            strncmp(ct, "Content-Type:", 13) == 0) {
+            ct += 13;
+            while (*ct == ' ') {
+                ct++;
+            }
+            size_t i = 0;
+            while (ct[i] && ct[i] != '\r' && ct[i] != '\n' && ct[i] != ';' && i + 1 < sizeof(http_mime)) {
+                http_mime[i] = ct[i];
+                i++;
+            }
+            http_mime[i] = 0;
+            break;
+        }
+        ct++;
+    }
+}
+
 static bool tcp_http_get(const u8 *remote_ip, const char *host, const char *path, u16 *status_out) {
     u16 local_port = next_ephemeral_port++;
     u16 remote_port = 80;
@@ -679,18 +919,22 @@ static bool tcp_http_get(const u8 *remote_ip, const char *host, const char *path
         seq++;
         send_tcp(remote_ip, local_port, remote_port, seq, ack, TCP_ACK, NULL, 0);
 
-        char request[256];
+        char request[512];
         request[0] = 0;
         append_text(request, sizeof(request), "GET ");
         append_text(request, sizeof(request), path[0] ? path : "/");
-        append_text(request, sizeof(request), " HTTP/1.0\r\nHost: ");
+        append_text(request, sizeof(request), " HTTP/1.1\r\nHost: ");
         append_text(request, sizeof(request), host);
-        append_text(request, sizeof(request), "\r\nUser-Agent: LiquidOS/0.1\r\nConnection: close\r\n\r\n");
+        append_text(request, sizeof(request),
+                    "\r\nUser-Agent: LiquidOS/0.1\r\nAccept: text/html,text/plain,*/*\r\nConnection: close\r\n\r\n");
         size_t request_len = strlen(request);
         send_tcp(remote_ip, local_port, remote_port, seq, ack, TCP_PSH | TCP_ACK, (const u8 *)request, request_len);
         seq += (u32)request_len;
 
         size_t raw_used = 0;
+        bool headers_ready = false;
+        HttpBodyStream body_stream;
+        http_body[0] = 0;
         for (u32 loops = 0; loops < 400000; loops++) {
             tcp = NULL;
             tcp_len = 0;
@@ -706,15 +950,35 @@ static bool tcp_http_get(const u8 *remote_ip, const char *host, const char *path
                 continue;
             }
             size_t data_len = tcp_len - offset;
-            if (data_len && remote_seq == ack) {
-                size_t copy = data_len;
-                if (raw_used + copy >= HTTP_RAW_SIZE) {
-                    copy = HTTP_RAW_SIZE - raw_used - 1;
+            if (data_len && remote_seq >= ack && remote_seq - ack < 4096) {
+                if (remote_seq > ack) {
+                    ack = remote_seq;
                 }
-                if (copy > 0) {
-                    memcpy(http_raw + raw_used, tcp + offset, copy);
-                    raw_used += copy;
-                    http_raw[raw_used] = 0;
+                const char *data = (const char *)(tcp + offset);
+                if (!headers_ready) {
+                    size_t copy = data_len;
+                    if (raw_used + copy >= HTTP_RAW_SIZE) {
+                        copy = HTTP_RAW_SIZE - raw_used - 1;
+                    }
+                    if (copy > 0) {
+                        memcpy(http_raw + raw_used, data, copy);
+                        raw_used += copy;
+                        http_raw[raw_used] = 0;
+                    }
+
+                    const char *body_start = http_header_body_start(http_raw);
+                    if (body_start) {
+                        parse_http_headers(status_out);
+                        bool chunked = header_contains_token(http_raw, "Transfer-Encoding:", "chunked");
+                        http_body_stream_init(&body_stream, chunked);
+                        headers_ready = true;
+                        size_t header_bytes = (size_t)(body_start - http_raw);
+                        if (raw_used > header_bytes) {
+                            http_body_stream_bytes(&body_stream, body_start, raw_used - header_bytes);
+                        }
+                    }
+                } else {
+                    http_body_stream_bytes(&body_stream, data, data_len);
                 }
                 ack += (u32)data_len;
                 send_tcp(remote_ip, local_port, remote_port, seq, ack, TCP_ACK, NULL, 0);
@@ -729,50 +993,20 @@ static bool tcp_http_get(const u8 *remote_ip, const char *host, const char *path
         if (raw_used == 0) {
             return false;
         }
-
-        *status_out = 0;
-        if (starts_with(http_raw, "HTTP/")) {
-            const char *space = http_raw;
-            while (*space && *space != ' ') {
-                space++;
+        if (!headers_ready) {
+            const char *body = http_header_body_start(http_raw);
+            if (!body) {
+                return false;
             }
-            if (*space == ' ') {
-                *status_out = (u16)((space[1] - '0') * 100 + (space[2] - '0') * 10 + (space[3] - '0'));
+            parse_http_headers(status_out);
+            bool chunked = header_contains_token(http_raw, "Transfer-Encoding:", "chunked");
+            if (chunked) {
+                decode_chunked_body(body, http_body, sizeof(http_body));
+            } else {
+                strncpy(http_body, body, sizeof(http_body) - 1);
+                http_body[sizeof(http_body) - 1] = 0;
             }
         }
-        if (*status_out == 0) {
-            *status_out = 200;
-        }
-
-        strcpy(http_mime, "text/html");
-        const char *ct = http_raw;
-        while (*ct) {
-            if ((ct[0] == 'C' || ct[0] == 'c') &&
-                strncmp(ct, "Content-Type:", 13) == 0) {
-                ct += 13;
-                while (*ct == ' ') {
-                    ct++;
-                }
-                size_t i = 0;
-                while (ct[i] && ct[i] != '\r' && ct[i] != '\n' && ct[i] != ';' && i + 1 < sizeof(http_mime)) {
-                    http_mime[i] = ct[i];
-                    i++;
-                }
-                http_mime[i] = 0;
-                break;
-            }
-            ct++;
-        }
-
-        const char *body = http_raw;
-        while (*body && !(body[0] == '\r' && body[1] == '\n' && body[2] == '\r' && body[3] == '\n')) {
-            body++;
-        }
-        if (*body) {
-            body += 4;
-        }
-        strncpy(http_body, body, sizeof(http_body) - 1);
-        http_body[sizeof(http_body) - 1] = 0;
         return true;
     }
     return false;

@@ -33,7 +33,7 @@ kernel_entry:
     hlt
     jmp .halt
 
-SECTION .bss
+SECTION .stack nobits
 ALIGN 16
 kernel_stack_bottom:
     resb 65536

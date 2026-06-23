@@ -20,9 +20,20 @@ SECTIONS
         *(.data*)
     }
 
-    .bss : ALIGN(4K)
+    __bss_start = .;
+
+    .stack (NOLOAD) : ALIGN(4K)
     {
-        __bss_start = .;
+        *(.stack*)
+    }
+
+    .dma (NOLOAD) : ALIGN(4K)
+    {
+        *(.dma*)
+    }
+
+    .bss (NOLOAD) : ALIGN(4K)
+    {
         *(COMMON)
         *(.bss*)
         __bss_end = .;

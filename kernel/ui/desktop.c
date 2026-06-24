@@ -174,6 +174,7 @@ static bool dragging = false;
 static bool resizing = false;
 static bool dock_resizing = false;
 static bool dock_grip_visible = false;
+static bool fullscreen_chrome_visible = false;
 static WindowKind dragged_window = WINDOW_TERMINAL;
 static WindowKind resized_window = WINDOW_TERMINAL;
 static i32 drag_offset_x = 0;
@@ -496,6 +497,10 @@ static void mark_dirty_taskbar(void) {
 
 static void mark_dirty_window(WindowKind kind) {
     Window *window = &windows[kind];
+    if (window->expanded) {
+        mark_dirty_full();
+        return;
+    }
     mark_dirty_rect(window->x, window->y, window->width, window->height);
 }
 
@@ -660,6 +665,14 @@ static void clamp_window(Window *window) {
     i32 screen_h = (i32)gfx_height();
     i32 top_reserved = taskbar_y() + taskbar_h() + 10;
 
+    if (window->expanded) {
+        window->x = 0;
+        window->y = 0;
+        window->width = screen_w;
+        window->height = screen_h;
+        return;
+    }
+
     clamp_window_size(window);
 
     if (window->x < 0) {
@@ -677,23 +690,25 @@ static void clamp_window(Window *window) {
 }
 
 static void toggle_window_size(Window *window) {
-    mark_dirty_rect(window->x, window->y, window->width, window->height);
+    mark_dirty_full();
     if (!window->expanded) {
         remember_window_restore(window);
-        window->x = 90;
-        window->y = taskbar_y() + taskbar_h() + 28;
-        window->width = (i32)gfx_width() - 180;
-        window->height = (i32)gfx_height() - window->y - 70;
+        window->x = 0;
+        window->y = 0;
+        window->width = (i32)gfx_width();
+        window->height = (i32)gfx_height();
         window->expanded = true;
+        fullscreen_chrome_visible = false;
     } else {
         window->x = window->restore_x;
         window->y = window->restore_y;
         window->width = window->restore_width;
         window->height = window->restore_height;
         window->expanded = false;
+        fullscreen_chrome_visible = false;
+        clamp_window(window);
     }
-    clamp_window(window);
-    mark_dirty_rect(window->x, window->y, window->width, window->height);
+    mark_dirty_full();
 }
 
 static void minimize_window(Window *window) {
@@ -2024,6 +2039,37 @@ static void handle_desktop_click(void) {
     mark_dirty_full();
 }
 
+static Window content_click_window(const Window *window) {
+    Window content_window = *window;
+    if (window->expanded) {
+        content_window.x = window->x - 6;
+        content_window.y = window->y - 30;
+        content_window.width = window->width + 12;
+        content_window.height = window->height + 36;
+    }
+    return content_window;
+}
+
+static void dispatch_window_content_click(WindowKind kind, const Window *window) {
+    Window content_window = content_click_window(window);
+    const Window *target = &content_window;
+    if (kind == WINDOW_FILES) {
+        handle_files_click(target);
+    } else if (kind == WINDOW_BROWSER) {
+        handle_browser_click(target);
+    } else if (kind == WINDOW_STORE) {
+        handle_store_click(target);
+    } else if (kind == WINDOW_SETTINGS) {
+        handle_settings_click(target);
+    } else if (kind == WINDOW_LAUNCHER) {
+        handle_launcher_click(target);
+    } else if (kind == WINDOW_APP_VIEW) {
+        handle_app_view_click(target);
+    } else if (kind == WINDOW_CONTROL_CENTER) {
+        handle_control_center_click(target);
+    }
+}
+
 static void handle_window_click(void) {
     for (int z = WINDOW_COUNT - 1; z >= 0; z--) {
         WindowKind kind = z_order[z];
@@ -2038,6 +2084,11 @@ static void handle_window_click(void) {
         }
 
         bring_to_front(kind);
+
+        if (window->expanded && !fullscreen_chrome_visible) {
+            dispatch_window_content_click(kind, window);
+            return;
+        }
 
         i32 title_x;
         i32 title_w;
@@ -2066,6 +2117,11 @@ static void handle_window_click(void) {
             return;
         }
 
+        if (window->expanded) {
+            dispatch_window_content_click(kind, window);
+            return;
+        }
+
         if (point_in_rect(mouse_x, mouse_y, window->x + window->width - 18, window->y + window->height - 18, 18, 18)) {
             resizing = true;
             resized_window = kind;
@@ -2081,21 +2137,7 @@ static void handle_window_click(void) {
         }
 
         if (point_in_rect(mouse_x, mouse_y, window->x + 6, window->y + 30, window->width - 12, window->height - 36)) {
-            if (kind == WINDOW_FILES) {
-                handle_files_click(window);
-            } else if (kind == WINDOW_BROWSER) {
-                handle_browser_click(window);
-            } else if (kind == WINDOW_STORE) {
-                handle_store_click(window);
-            } else if (kind == WINDOW_SETTINGS) {
-                handle_settings_click(window);
-            } else if (kind == WINDOW_LAUNCHER) {
-                handle_launcher_click(window);
-            } else if (kind == WINDOW_APP_VIEW) {
-                handle_app_view_click(window);
-            } else if (kind == WINDOW_CONTROL_CENTER) {
-                handle_control_center_click(window);
-            }
+            dispatch_window_content_click(kind, window);
         }
 
         return;
@@ -2230,9 +2272,24 @@ static void update_clock_text(void) {
     date_text[10] = 0;
 }
 
+static void draw_liquid_reference_glass(i32 x, i32 y, i32 width, i32 height, i32 radius, bool shadow) {
+    if (shadow) {
+        gfx_fill_round_rect_alpha(x, y + 4, width, height, radius, RGB(0, 0, 0), 34);
+    }
+    i32 inner_radius = radius > 2 ? radius - 2 : radius;
+    i32 inset_radius = radius > 8 ? radius / 2 : radius;
+    gfx_blur_round_rect(x, y, width, height, radius);
+    gfx_blur_round_rect(x + 1, y + 1, width - 2, height - 2, inner_radius);
+    gfx_refract_round_rect_edges(x, y, width, height, radius, 3);
+    gfx_fill_round_rect_plain_alpha(x, y, width, height, radius, RGB(255, 255, 255), 16);
+    gfx_fill_round_rect_plain_alpha(x + 2, y + height - 18, width - 4, 16, inset_radius, RGB(0, 0, 0), 16);
+    gfx_fill_round_rect_plain_alpha(x + 2, y + 2, width - 4, 4, inner_radius, RGB(255, 255, 255), 22);
+    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 112);
+    gfx_draw_round_rect_alpha(x + 1, y + 1, width - 2, height - 2, inner_radius, RGB(255, 255, 255), 44);
+}
+
 static void draw_glass_panel(i32 x, i32 y, i32 width, i32 height, i32 radius) {
-    gfx_fill_round_rect_alpha(x + 5, y + 7, width, height, radius, RGB(0, 0, 0), 62);
-    gfx_liquid_glass_rect(x, y, width, height, radius);
+    draw_liquid_reference_glass(x, y, width, height, radius, true);
 }
 
 static void draw_background(void) {
@@ -2240,11 +2297,7 @@ static void draw_background(void) {
 }
 
 static void draw_dock_glass_capsule(i32 x, i32 y, i32 width, i32 height, i32 radius) {
-    gfx_blur_round_rect(x, y, width, height, radius);
-    gfx_blur_round_rect(x + 2, y + 2, width - 4, height - 4, radius - 2);
-    gfx_refract_round_rect_edges(x, y, width, height, radius, 2);
-    gfx_fill_round_rect_plain_alpha(x + 2, y + 2, width - 4, height - 4, radius - 2, RGB(210, 232, 255), 8);
-    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 74);
+    draw_liquid_reference_glass(x, y, width, height, radius, false);
 }
 
 static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
@@ -2418,10 +2471,8 @@ static void draw_dock_resize_grip(const TaskbarLayout *bar) {
     gfx_liquid_glass_grip(draw_x, draw_y, grip_w, grip_h, grip_radius);
 }
 
-static void draw_window_frame(const Window *window, bool focused) {
+static void draw_window_chrome_group(const Window *window, bool focused) {
     const DesktopTheme *theme = &themes[current_theme];
-    i32 radius = 24;
-    Color rim = focused ? RGB(246, 252, 255) : RGB(214, 224, 238);
     i32 title_x;
     i32 title_w;
     i32 min_x;
@@ -2430,51 +2481,43 @@ static void draw_window_frame(const Window *window, bool focused) {
     i32 control_y;
     i32 control_size;
     window_title_group_layout(window, &title_x, &title_w, &min_x, &max_x, &close_x, &control_y, &control_size);
-    i32 chip_radius = (control_size * radius) / window->height;
+    i32 chip_radius = (control_size * 24) / (window->height > 0 ? window->height : 1);
     if (chip_radius < 8) {
         chip_radius = 8;
     }
 
-    gfx_blur_round_rect(window->x, window->y, window->width, window->height, radius);
-    gfx_blur_round_rect(window->x + 2, window->y + 2, window->width - 4, window->height - 4, radius - 2);
-    gfx_refract_round_rect_edges(window->x, window->y, window->width, window->height, radius, 2);
+    draw_liquid_reference_glass(title_x, control_y, title_w, control_size, chip_radius, false);
+    gfx_fill_round_rect_alpha(title_x + 7, control_y + 6, 12, 12, 5, theme->accent, focused ? 156 : 92);
+    gfx_draw_text(title_x + 26, control_y + 7, window_safe_title(window), focused ? theme->text : RGB(132, 142, 154), 1);
+
+    draw_liquid_reference_glass(min_x, control_y, control_size, control_size, chip_radius, false);
+    gfx_fill_round_rect_plain_alpha(min_x, control_y, control_size, control_size, chip_radius, RGB(242, 190, 76), focused ? 34 : 18);
+    gfx_fill_rect(min_x + 7, control_y + 13, control_size - 14, 2, RGB(255, 246, 214));
+
+    draw_liquid_reference_glass(max_x, control_y, control_size, control_size, chip_radius, false);
+    gfx_fill_round_rect_plain_alpha(max_x, control_y, control_size, control_size, chip_radius, RGB(83, 196, 101), focused ? 32 : 16);
+    gfx_draw_rect(max_x + 7, control_y + 7, control_size - 14, control_size - 14, RGB(224, 255, 230));
+
+    draw_liquid_reference_glass(close_x, control_y, control_size, control_size, chip_radius, false);
+    gfx_fill_round_rect_plain_alpha(close_x, control_y, control_size, control_size, chip_radius, RGB(238, 94, 88), focused ? 32 : 16);
+    gfx_draw_line(close_x + 8, control_y + 8, close_x + control_size - 8, control_y + control_size - 8, RGB(255, 226, 224));
+    gfx_draw_line(close_x + control_size - 8, control_y + 8, close_x + 8, control_y + control_size - 8, RGB(255, 226, 224));
+}
+
+static void draw_window_frame(const Window *window, bool focused) {
+    const DesktopTheme *theme = &themes[current_theme];
+    i32 radius = 24;
+    Color rim = RGB(94, 94, 94);
     bool settings_window = window == &windows[WINDOW_SETTINGS];
-    gfx_fill_round_rect_plain_alpha(window->x + 2, window->y + 2, window->width - 4, window->height - 4,
-                                    radius - 2,
-                                    settings_window ? RGB(248, 250, 255) : RGB(210, 232, 255),
-                                    settings_window ? (focused ? 8 : 5) : (focused ? 10 : 7));
+
+    draw_liquid_reference_glass(window->x, window->y, window->width, window->height, radius, true);
     gfx_fill_round_rect_alpha(window->x + 6, window->y + 30, window->width - 12, window->height - 36,
                               radius - 8,
                               settings_window ? RGB(248, 250, 255) : theme->panel,
                               settings_window ? (focused ? 16 : 10) : (focused ? 220 : 196));
     gfx_draw_round_rect_alpha(window->x, window->y, window->width, window->height, radius,
-                              rim, focused ? 76 : 48);
-
-    gfx_blur_round_rect(title_x, control_y, title_w, control_size, chip_radius);
-    gfx_refract_round_rect_edges(title_x, control_y, title_w, control_size, chip_radius, 1);
-    gfx_fill_round_rect_plain_alpha(title_x, control_y, title_w, control_size, chip_radius, RGB(230, 244, 255), focused ? 24 : 14);
-    gfx_draw_round_rect_alpha(title_x, control_y, title_w, control_size, chip_radius, RGB(246, 252, 255), focused ? 64 : 38);
-    gfx_fill_round_rect_alpha(title_x + 7, control_y + 6, 12, 12, 5, theme->accent, focused ? 156 : 92);
-    gfx_draw_text(title_x + 26, control_y + 7, window_safe_title(window), focused ? theme->text : RGB(132, 142, 154), 1);
-
-    gfx_blur_round_rect(min_x, control_y, control_size, control_size, chip_radius);
-    gfx_refract_round_rect_edges(min_x, control_y, control_size, control_size, chip_radius, 1);
-    gfx_fill_round_rect_plain_alpha(min_x, control_y, control_size, control_size, chip_radius, RGB(242, 190, 76), focused ? 34 : 18);
-    gfx_draw_round_rect_alpha(min_x, control_y, control_size, control_size, chip_radius, RGB(246, 252, 255), focused ? 58 : 34);
-    gfx_fill_rect(min_x + 7, control_y + 13, control_size - 14, 2, RGB(255, 246, 214));
-
-    gfx_blur_round_rect(max_x, control_y, control_size, control_size, chip_radius);
-    gfx_refract_round_rect_edges(max_x, control_y, control_size, control_size, chip_radius, 1);
-    gfx_fill_round_rect_plain_alpha(max_x, control_y, control_size, control_size, chip_radius, RGB(83, 196, 101), focused ? 32 : 16);
-    gfx_draw_round_rect_alpha(max_x, control_y, control_size, control_size, chip_radius, RGB(246, 252, 255), focused ? 58 : 34);
-    gfx_draw_rect(max_x + 7, control_y + 7, control_size - 14, control_size - 14, RGB(224, 255, 230));
-
-    gfx_blur_round_rect(close_x, control_y, control_size, control_size, chip_radius);
-    gfx_refract_round_rect_edges(close_x, control_y, control_size, control_size, chip_radius, 1);
-    gfx_fill_round_rect_plain_alpha(close_x, control_y, control_size, control_size, chip_radius, RGB(238, 94, 88), focused ? 32 : 16);
-    gfx_draw_round_rect_alpha(close_x, control_y, control_size, control_size, chip_radius, RGB(246, 252, 255), focused ? 58 : 34);
-    gfx_draw_line(close_x + 8, control_y + 8, close_x + control_size - 8, control_y + control_size - 8, RGB(255, 226, 224));
-    gfx_draw_line(close_x + control_size - 8, control_y + 8, close_x + 8, control_y + control_size - 8, RGB(255, 226, 224));
+                              rim, focused ? 255 : 210);
+    draw_window_chrome_group(window, focused);
 
     gfx_draw_line(window->x + window->width - 17, window->y + window->height - 6, window->x + window->width - 6, window->y + window->height - 17, RGB(132, 146, 154));
     gfx_draw_line(window->x + window->width - 12, window->y + window->height - 5, window->x + window->width - 5, window->y + window->height - 12, RGB(132, 146, 154));
@@ -3274,6 +3317,43 @@ static void draw_desktop_context_menu(void) {
     gfx_draw_text(x + 16, y + 96, "New File", RGB(35, 43, 52), 1);
 }
 
+static void window_content_rect(const Window *window, i32 *x, i32 *y, i32 *width, i32 *height) {
+    if (window->expanded) {
+        *x = window->x;
+        *y = window->y;
+        *width = window->width;
+        *height = window->height;
+        return;
+    }
+    *x = window->x + 6;
+    *y = window->y + 30;
+    *width = window->width - 12;
+    *height = window->height - 36;
+}
+
+static bool has_expanded_window(void) {
+    for (i32 i = 0; i < WINDOW_COUNT; i++) {
+        Window *window = &windows[i];
+        if (window->open && !window->minimized && window->expanded) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Window *expanded_chrome_window(void) {
+    if (windows[focused_window].open && !windows[focused_window].minimized && windows[focused_window].expanded) {
+        return &windows[focused_window];
+    }
+    for (int z = WINDOW_COUNT - 1; z >= 0; z--) {
+        Window *window = &windows[z_order[z]];
+        if (window->open && !window->minimized && window->expanded) {
+            return window;
+        }
+    }
+    return NULL;
+}
+
 static void draw_window(WindowKind kind) {
     Window *window = &windows[kind];
     if (!window->open || window->minimized) {
@@ -3281,12 +3361,15 @@ static void draw_window(WindowKind kind) {
     }
 
     bool focused = focused_window == kind;
-    draw_window_frame(window, focused);
+    if (!window->expanded) {
+        draw_window_frame(window, focused);
+    }
 
-    i32 content_x = window->x + 6;
-    i32 content_y = window->y + 30;
-    i32 content_w = window->width - 12;
-    i32 content_h = window->height - 36;
+    i32 content_x;
+    i32 content_y;
+    i32 content_w;
+    i32 content_h;
+    window_content_rect(window, &content_x, &content_y, &content_w, &content_h);
 
     if (kind == WINDOW_TERMINAL) {
         terminal_render(content_x, content_y, content_w, content_h, focused);
@@ -3332,6 +3415,20 @@ static void draw_taskbar(void) {
     }
     if (dock_grip_visible || dock_resizing || hover_zone == 0 || hover_zone == 2) {
         draw_dock_resize_grip(&bar);
+    }
+}
+
+static void draw_fullscreen_reveal(void) {
+    if (!has_expanded_window() || !fullscreen_chrome_visible) {
+        return;
+    }
+    i32 h = taskbar_y() + taskbar_h() + 18;
+    draw_liquid_reference_glass(0, -18, (i32)gfx_width(), h + 18, 0, false);
+    gfx_fill_round_rect_plain_alpha(0, h - 1, (i32)gfx_width(), 1, 0, RGB(94, 94, 94), 180);
+    draw_taskbar();
+    Window *window = expanded_chrome_window();
+    if (window) {
+        draw_window_chrome_group(window, true);
     }
 }
 
@@ -3453,16 +3550,26 @@ void ui_handle_event(const InputEvent *event) {
         cursor_redraw_needed = true;
     }
 
-    i32 new_hover_zone = taskbar_hover_zone_at(mouse_x, mouse_y);
+    bool expanded_window_open = has_expanded_window();
+    bool next_fullscreen_chrome = expanded_window_open &&
+                                  (mouse_y <= 3 ||
+                                   (fullscreen_chrome_visible && mouse_y <= taskbar_y() + taskbar_h() + 42));
+    if (next_fullscreen_chrome != fullscreen_chrome_visible) {
+        fullscreen_chrome_visible = next_fullscreen_chrome;
+        mark_dirty_full();
+    }
+
+    i32 new_hover_zone = (!expanded_window_open || fullscreen_chrome_visible) ? taskbar_hover_zone_at(mouse_x, mouse_y) : -1;
     if (new_hover_zone != hover_zone) {
         hover_zone = new_hover_zone;
     }
 
     bool left_now = event->left_down;
     bool right_now = event->right_down;
+    bool taskbar_available = !expanded_window_open || fullscreen_chrome_visible;
 
     if (right_now && !previous_right &&
-        !point_in_rect(mouse_x, mouse_y, taskbar_x(), taskbar_y(), taskbar_w(), taskbar_h()) &&
+        (!taskbar_available || !point_in_rect(mouse_x, mouse_y, taskbar_x(), taskbar_y(), taskbar_w(), taskbar_h())) &&
         !point_in_open_window(mouse_x, mouse_y)) {
         context_menu_x = mouse_x;
         context_menu_y = mouse_y;
@@ -3528,7 +3635,7 @@ void ui_handle_event(const InputEvent *event) {
             context_menu_open = false;
             mark_dirty_full();
         }
-        if (point_in_rect(mouse_x, mouse_y, taskbar_x(), taskbar_y(), taskbar_w(), taskbar_h())) {
+        if (taskbar_available && point_in_rect(mouse_x, mouse_y, taskbar_x(), taskbar_y(), taskbar_w(), taskbar_h())) {
             handle_taskbar_click();
             mark_dirty_taskbar();
         } else {
@@ -3598,7 +3705,11 @@ void ui_render(void) {
         }
 
         draw_desktop_context_menu();
-        draw_taskbar();
+        if (has_expanded_window()) {
+            draw_fullscreen_reveal();
+        } else {
+            draw_taskbar();
+        }
         draw_notifications();
         gfx_clear_clip();
         gfx_present_rect(present_x, present_y, present_w, present_h);

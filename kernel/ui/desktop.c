@@ -2274,18 +2274,12 @@ static void update_clock_text(void) {
 
 static void draw_liquid_reference_glass(i32 x, i32 y, i32 width, i32 height, i32 radius, bool shadow) {
     if (shadow) {
-        gfx_fill_round_rect_alpha(x, y + 4, width, height, radius, RGB(0, 0, 0), 34);
+        gfx_fill_round_rect_alpha(x, y + 5, width, height, radius, RGB(0, 0, 0), 38);
     }
     i32 inner_radius = radius > 2 ? radius - 2 : radius;
-    i32 inset_radius = radius > 8 ? radius / 2 : radius;
-    gfx_blur_round_rect(x, y, width, height, radius);
-    gfx_blur_round_rect(x + 1, y + 1, width - 2, height - 2, inner_radius);
-    gfx_refract_round_rect_edges(x, y, width, height, radius, 3);
-    gfx_fill_round_rect_plain_alpha(x, y, width, height, radius, RGB(255, 255, 255), 16);
-    gfx_fill_round_rect_plain_alpha(x + 2, y + height - 18, width - 4, 16, inset_radius, RGB(0, 0, 0), 16);
-    gfx_fill_round_rect_plain_alpha(x + 2, y + 2, width - 4, 4, inner_radius, RGB(255, 255, 255), 22);
-    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 112);
-    gfx_draw_round_rect_alpha(x + 1, y + 1, width - 2, height - 2, inner_radius, RGB(255, 255, 255), 44);
+    gfx_liquid_glass_rect(x, y, width, height, radius);
+    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 132);
+    gfx_draw_round_rect_alpha(x + 1, y + 1, width - 2, height - 2, inner_radius, RGB(255, 255, 255), 52);
 }
 
 static void draw_glass_panel(i32 x, i32 y, i32 width, i32 height, i32 radius) {

@@ -378,7 +378,8 @@ void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
     }
 
     gfx_blur_round_rect(x, y, width, height, radius);
-    gfx_blur_round_rect(x + 2, y + 2, width - 4, height - 4, radius - 2);
+    gfx_blur_round_rect(x + 1, y + 1, width - 2, height - 2, radius - 1);
+    gfx_refract_round_rect_edges(x, y, width, height, radius, 4);
 
     for (i32 py = y; py < y + height; py++) {
         for (i32 px = x; px < x + width; px++) {
@@ -391,56 +392,73 @@ void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
             i32 edge_x = px - x;
             i32 from_right = x + width - 1 - px;
             i32 edge = edge_x < from_right ? edge_x : from_right;
+            i32 from_bottom = y + height - 1 - py;
 
-            Color color = RGB(21, 29, 46);
-            u8 alpha = 58;
-            if (local_y < height / 3) {
-                color = RGB(222, 239, 252);
-                alpha = 44;
+            Color source = get_pixel(px, py);
+            Color color = lerp_color(source, RGB(255, 255, 255), 13107);
+            u8 alpha = 38;
+            if (edge_x < width / 4) {
+                color = lerp_color(get_pixel(x - 8, py), RGB(255, 255, 255), 16384);
+                alpha = 48;
+            } else if (edge_x > (width * 3) / 4) {
+                color = lerp_color(get_pixel(x + width + 8, py), RGB(255, 255, 255), 9830);
+                alpha = 40;
+            }
+            if (local_y < height / 4) {
+                color = lerp_color(get_pixel(px, y - 8), RGB(255, 255, 255), 19660);
+                alpha = (u8)(alpha + 8);
             } else if (local_y > height - height / 4) {
-                color = RGB(4, 9, 18);
-                alpha = 42;
+                color = lerp_color(get_pixel(px, y + height + 8), RGB(255, 255, 255), 6553);
+                alpha = (u8)(alpha + 2);
             }
 
             u8 effective = (u8)(((u32)alpha * coverage) / 255);
             put_pixel(px, py, blend(get_pixel(px, py), color, effective));
 
-            if (local_y < 3) {
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((120 * coverage) / 255)));
+            if (local_y < 3 || from_bottom < 3) {
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((132 * coverage) / 255)));
             }
-            if (local_y > height - 11) {
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(0, 0, 0), (u8)((26 * coverage) / 255)));
+            if (from_bottom < 12) {
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(0, 0, 42), (u8)((22 * coverage) / 255)));
             }
-            if (edge < 2) {
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(210, 238, 255), (u8)((70 * coverage) / 255)));
+            if (edge < 3) {
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(218, 246, 255), (u8)(((3 - edge) * 50 * coverage) / 255)));
             }
 
-            i32 from_bottom = y + height - 1 - py;
-            bool near_edge = local_y < 4 || from_bottom < 4 || edge < 4;
+            bool near_edge = local_y < 5 || from_bottom < 5 || edge < 5;
             if (near_edge) {
                 Color ambient = get_pixel(px, py);
-                if (local_y < 4) {
+                if (local_y < 5) {
                     ambient = get_pixel(px, y - 7);
-                } else if (from_bottom < 4) {
+                } else if (from_bottom < 5) {
                     ambient = get_pixel(px, y + height + 6);
-                } else if (edge_x < 4) {
+                } else if (edge_x < 5) {
                     ambient = get_pixel(x - 7, py);
-                } else if (from_right < 4) {
+                } else if (from_right < 5) {
                     ambient = get_pixel(x + width + 6, py);
                 }
 
-                u8 rim = (u8)(((4 - (local_y < 4 ? local_y : (from_bottom < 4 ? from_bottom : edge))) * 42 * coverage) / 255);
+                i32 rim_distance = local_y < 5 ? local_y : (from_bottom < 5 ? from_bottom : edge);
+                u8 rim = (u8)(((5 - rim_distance) * 34 * coverage) / 255);
                 put_pixel(px, py, blend(get_pixel(px, py), ambient, rim));
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(235, 250, 255), (u8)((rim * 3) / 5)));
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((rim * 4) / 5)));
             }
 
-            u8 h1 = liquid_highlight_alpha(px, py, x + width / 8, y + 4, 54, 5, 92);
-            u8 h2 = liquid_highlight_alpha(px, py, x + width / 2, y + 5, 86, 6, 58);
-            u8 h3 = liquid_highlight_alpha(px, py, x + width - width / 8, y + 4, 62, 5, 76);
+            i32 small = width < 180 || height < 46;
+            u8 h1 = liquid_highlight_alpha(px, py, x + width / 13, y + height / 5,
+                                           small ? width / 5 : width / 7,
+                                           small ? height / 3 : height / 2, 108);
+            u8 h2 = liquid_highlight_alpha(px, py, x + (width * 79) / 100, y + height / 3,
+                                           small ? width / 7 : width / 10,
+                                           small ? height / 3 : (height * 7) / 10, 84);
+            u8 h3 = liquid_highlight_alpha(px, py, x + width / 2, y + 3,
+                                           small ? width / 3 : (width * 3) / 10,
+                                           5, 58);
             u8 glow = h1 > h2 ? h1 : h2;
             glow = glow > h3 ? glow : h3;
             if (glow) {
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(167, 245, 255), (u8)(((u32)glow * coverage) / 255)));
+                Color spec = h3 >= glow ? RGB(246, 252, 255) : lerp_color(get_pixel(px, py), RGB(255, 255, 255), 26214);
+                put_pixel(px, py, blend(get_pixel(px, py), spec, (u8)(((u32)glow * coverage) / 255)));
             }
         }
     }

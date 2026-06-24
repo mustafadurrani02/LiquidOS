@@ -2,6 +2,7 @@
 #include <liquidos/disk.h>
 #include <liquidos/loader.h>
 #include <liquidos/lib.h>
+#include <liquidos/scheduler.h>
 #include <liquidos/serial.h>
 #include <liquidos/syscall.h>
 #include <liquidos/vmm.h>
@@ -14,6 +15,11 @@
 
 static FsFile files[FS_MAX_FILES];
 static u8 disk_image[FS_DISK_SECTORS * 512];
+
+static u64 fs_modified_now(void) {
+    u64 tick = scheduler_ticks();
+    return tick ? tick : 1;
+}
 
 typedef struct FsDiskHeader {
     u32 magic;
@@ -47,6 +53,7 @@ static void set_file(size_t slot, const char *name, const char *contents) {
     strncpy(files[slot].contents, contents, FS_CONTENT_LENGTH - 1);
     files[slot].contents[FS_CONTENT_LENGTH - 1] = 0;
     files[slot].size = strlen(files[slot].contents);
+    files[slot].modified_tick = fs_modified_now();
     files[slot].used = true;
 }
 
@@ -59,6 +66,7 @@ static void set_file_bytes(size_t slot, const char *name, const u8 *contents, si
     memset(files[slot].contents, 0, sizeof(files[slot].contents));
     memcpy(files[slot].contents, contents, size);
     files[slot].size = size;
+    files[slot].modified_tick = fs_modified_now();
     files[slot].used = true;
 }
 
@@ -225,16 +233,26 @@ static void fs_load_defaults(void) {
     set_file(6, "WEB/HOME.HTML", "Liqueia native start page.");
     set_file(7, "WEB/DOCS.HTML", "Liqueia is ready for the future LiquidOS network stack.");
     set_file(8, "WEB/ABOUT.HTML", "Native port based on mustafadurrani02/Liqueia.");
+    set_file(9, "HOME/.DIR", "LiquidOS directory marker.");
+    set_file(10, "DOWNLOADS/.DIR", "LiquidOS directory marker.");
+    set_file(11, "DOCUMENTS/PROJECTS/.DIR", "LiquidOS directory marker.");
+    set_file(12, "PICTURES/.DIR", "LiquidOS directory marker.");
+    set_file(13, "MUSIC/.DIR", "LiquidOS directory marker.");
+    set_file(14, "VIDEOS/.DIR", "LiquidOS directory marker.");
+    set_file(15, "TRASH/.DIR", "LiquidOS directory marker.");
+    set_file(16, "DOCUMENTS/README.TXT", "Documents is now browsable from the LiquidOS File Explorer.");
+    set_file(17, "DOWNLOADS/WELCOME.TXT", "Downloaded files appear here.");
+    set_file(18, "PICTURES/WALLPAPER.TXT", "Wallpaper assets and image notes live here.");
 
     u8 app[FS_CONTENT_LENGTH];
     size_t size = build_lapp(app, "hello.app from flat LAPP format\n", 1, false);
-    set_file_bytes(9, "APPS/HELLO.APP", app, size);
+    set_file_bytes(19, "APPS/HELLO.APP", app, size);
     size = build_lapp(app, "app A yielded from ring 3\n", 3, true);
-    set_file_bytes(10, "APPS/APP_A.APP", app, size);
+    set_file_bytes(20, "APPS/APP_A.APP", app, size);
     size = build_lapp(app, "app B yielded from ring 3\n", 3, true);
-    set_file_bytes(11, "APPS/APP_B.APP", app, size);
+    set_file_bytes(21, "APPS/APP_B.APP", app, size);
     size = build_crash_lapp(app);
-    set_file_bytes(12, "APPS/CRASH.APP", app, size);
+    set_file_bytes(22, "APPS/CRASH.APP", app, size);
 }
 
 void fs_init(void) {
@@ -328,6 +346,7 @@ bool fs_write(const char *name, const char *contents) {
             strncpy(files[i].contents, contents, FS_CONTENT_LENGTH - 1);
             files[i].contents[FS_CONTENT_LENGTH - 1] = 0;
             files[i].size = strlen(files[i].contents);
+            files[i].modified_tick = fs_modified_now();
             fs_save_to_disk();
             return true;
         }
@@ -356,6 +375,7 @@ bool fs_write_bytes(const char *name, const u8 *contents, size_t size) {
             memset(files[i].contents, 0, sizeof(files[i].contents));
             memcpy(files[i].contents, contents, size);
             files[i].size = size;
+            files[i].modified_tick = fs_modified_now();
             fs_save_to_disk();
             return true;
         }
@@ -393,6 +413,7 @@ bool fs_rename(const char *old_name, const char *new_name) {
         if (files[i].used && strcmp(files[i].name, old_name) == 0) {
             strncpy(files[i].name, new_name, FS_NAME_LENGTH - 1);
             files[i].name[FS_NAME_LENGTH - 1] = 0;
+            files[i].modified_tick = fs_modified_now();
             fs_save_to_disk();
             return true;
         }

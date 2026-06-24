@@ -93,6 +93,40 @@ typedef struct DockApp {
     bool small_artwork;
 } DockApp;
 
+typedef struct FileLocation {
+    const char *label;
+    const char *path;
+} FileLocation;
+
+typedef struct FileExplorerEntry {
+    char name[FS_NAME_LENGTH];
+    char path[FS_NAME_LENGTH];
+    bool folder;
+    bool selected;
+    u64 size;
+    u64 modified_tick;
+} FileExplorerEntry;
+
+typedef enum FileClipboardMode {
+    FILE_CLIPBOARD_EMPTY = 0,
+    FILE_CLIPBOARD_COPY,
+    FILE_CLIPBOARD_CUT
+} FileClipboardMode;
+
+typedef enum FileCommand {
+    FILE_CMD_BACK = 0,
+    FILE_CMD_FORWARD,
+    FILE_CMD_UP,
+    FILE_CMD_NEW_FOLDER,
+    FILE_CMD_COPY,
+    FILE_CMD_CUT,
+    FILE_CMD_PASTE,
+    FILE_CMD_RENAME,
+    FILE_CMD_DELETE,
+    FILE_CMD_REFRESH,
+    FILE_CMD_COUNT
+} FileCommand;
+
 static const DesktopTheme themes[] = {
     { "Liquid Gold", RGB(255, 208, 96), RGB(24, 18, 34), RGB(244, 184, 64), RGB(248, 245, 235), RGB(31, 34, 42) },
     { "Aurora Blue", RGB(70, 198, 255), RGB(13, 25, 59), RGB(104, 207, 255), RGB(236, 246, 255), RGB(24, 36, 56) },
@@ -105,6 +139,19 @@ static const DockApp dock_apps[] = {
     { WINDOW_FILES, "FILES", app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT, RGB(238, 145, 255), RGB(116, 62, 218), true },
     { WINDOW_TERMINAL, "TERMINAL", app_icon_terminal_argb, APP_ICON_TERMINAL_WIDTH, APP_ICON_TERMINAL_HEIGHT, RGB(38, 42, 75), RGB(8, 9, 22), true },
     { WINDOW_SETTINGS, "SETTINGS", app_icon_settings_argb, APP_ICON_SETTINGS_WIDTH, APP_ICON_SETTINGS_HEIGHT, RGB(104, 130, 164), RGB(54, 61, 78), false },
+};
+
+static const FileLocation file_locations[] = {
+    { "Home", "HOME" },
+    { "Desktop", "DESKTOP" },
+    { "Documents", "DOCUMENTS" },
+    { "Downloads", "DOWNLOADS" },
+    { "Pictures", "PICTURES" },
+    { "Music", "MUSIC" },
+    { "Videos", "VIDEOS" },
+    { "Applications", "APPS" },
+    { "System", "SYSTEM" },
+    { "Trash", "TRASH" },
 };
 
 static Window windows[WINDOW_COUNT];
@@ -130,7 +177,6 @@ static char clock_text[6] = "00:00";
 static char date_text[11] = "00/00/0000";
 static char taskbar_message[32] = "SEARCH";
 static char app_status_text[64] = "Install an app, then run it from Store or Launch Apps.";
-static char file_clipboard[FS_NAME_LENGTH] = "";
 static bool wifi_enabled = true;
 static bool battery_saver = false;
 static bool full_redraw_needed = true;
@@ -146,8 +192,24 @@ static i32 dirty_y1 = 0;
 static i32 previous_mouse_x = 320;
 static i32 previous_mouse_y = 240;
 static i32 hover_zone = -1;
+static FileExplorerEntry files_entries[40];
+static char files_current_path[FS_NAME_LENGTH] = "HOME";
+static char files_back_stack[8][FS_NAME_LENGTH];
+static char files_forward_stack[8][FS_NAME_LENGTH];
+static char files_clipboard_path[FS_NAME_LENGTH] = "";
+static char files_clipboard_paths[8][FS_NAME_LENGTH];
+static bool files_clipboard_folders[8];
+static char files_search[32] = "";
+static FileClipboardMode files_clipboard_mode = FILE_CLIPBOARD_EMPTY;
+static size_t files_entry_count = 0;
+static size_t files_back_count = 0;
+static size_t files_forward_count = 0;
+static size_t files_clipboard_count = 0;
 static i32 selected_file_index = 0;
+static bool files_dirty = true;
+static bool files_search_editing = false;
 static u32 new_file_counter = 1;
+static u32 new_folder_counter = 1;
 static size_t current_theme = 0;
 static size_t selected_store_app = 0;
 static Notification notifications[8];
@@ -563,6 +625,335 @@ static const char *process_state_name(ProcessState state) {
     }
 }
 
+static char ascii_lower(char ch) {
+    return ch >= 'A' && ch <= 'Z' ? (char)(ch + ('a' - 'A')) : ch;
+}
+
+static bool starts_with(const char *text, const char *prefix) {
+    return strncmp(text, prefix, strlen(prefix)) == 0;
+}
+
+static bool starts_with_ci(const char *text, const char *prefix) {
+    while (*prefix) {
+        if (ascii_lower(*text) != ascii_lower(*prefix)) {
+            return false;
+        }
+        text++;
+        prefix++;
+    }
+    return true;
+}
+
+static bool contains_text_ci(const char *text, const char *needle) {
+    if (!needle[0]) {
+        return true;
+    }
+    while (*text) {
+        if (starts_with_ci(text, needle)) {
+            return true;
+        }
+        text++;
+    }
+    return false;
+}
+
+static const char *last_path_segment(const char *path) {
+    const char *base = path;
+    while (*path) {
+        if (*path == '/') {
+            base = path + 1;
+        }
+        path++;
+    }
+    return base;
+}
+
+static void parent_path(const char *path, char *out, size_t out_size) {
+    size_t len = strlen(path);
+    while (len > 0 && path[len - 1] != '/') {
+        len--;
+    }
+    if (len > 0) {
+        len--;
+    }
+    if (len + 1 > out_size) {
+        len = out_size - 1;
+    }
+    for (size_t i = 0; i < len; i++) {
+        out[i] = path[i];
+    }
+    out[len] = 0;
+}
+
+static void join_path(const char *folder, const char *name, char *out, size_t out_size) {
+    out[0] = 0;
+    if (folder && folder[0]) {
+        append_text(out, out_size, folder);
+        append_text(out, out_size, "/");
+    }
+    append_text(out, out_size, name);
+}
+
+static bool path_in_folder(const char *path, const char *folder, const char **rest) {
+    if (!folder[0]) {
+        *rest = path;
+        return true;
+    }
+    size_t len = strlen(folder);
+    if (strncmp(path, folder, len) != 0 || path[len] != '/') {
+        return false;
+    }
+    *rest = path + len + 1;
+    return true;
+}
+
+static bool path_has_child_separator(const char *text) {
+    while (*text) {
+        if (*text == '/') {
+            return true;
+        }
+        text++;
+    }
+    return false;
+}
+
+static bool is_dir_marker_name(const char *name) {
+    return strcmp(name, ".DIR") == 0;
+}
+
+static void dir_marker_path(const char *folder, char *out, size_t out_size) {
+    join_path(folder, ".DIR", out, out_size);
+}
+
+static bool files_is_folder_path(const char *path) {
+    char marker[FS_NAME_LENGTH];
+    dir_marker_path(path, marker, sizeof(marker));
+    if (fs_find(marker)) {
+        return true;
+    }
+
+    char prefix[FS_NAME_LENGTH];
+    prefix[0] = 0;
+    append_text(prefix, sizeof(prefix), path);
+    append_text(prefix, sizeof(prefix), "/");
+    for (size_t i = 0; i < fs_file_count(); i++) {
+        const FsFile *file = fs_get_file(i);
+        if (file && starts_with(file->name, prefix)) {
+            return true;
+        }
+    }
+    for (size_t i = 0; i < sizeof(file_locations) / sizeof(file_locations[0]); i++) {
+        if (strcmp(file_locations[i].path, path) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static const char *file_type_for_name(const char *name, bool folder) {
+    if (folder) {
+        return "Folder";
+    }
+    const char *dot = NULL;
+    for (const char *p = name; *p; p++) {
+        if (*p == '.') {
+            dot = p;
+        }
+    }
+    if (!dot) {
+        return "File";
+    }
+    if (strcmp(dot, ".TXT") == 0) {
+        return "Text";
+    }
+    if (strcmp(dot, ".APP") == 0) {
+        return "App";
+    }
+    if (strcmp(dot, ".HTML") == 0) {
+        return "Web";
+    }
+    if (strcmp(dot, ".LPKG") == 0) {
+        return "Package";
+    }
+    return dot + 1;
+}
+
+static void files_mark_dirty(void) {
+    files_dirty = true;
+}
+
+static bool files_entry_duplicate(const char *path, bool folder) {
+    for (size_t i = 0; i < files_entry_count; i++) {
+        if (files_entries[i].folder == folder && strcmp(files_entries[i].path, path) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void files_add_entry(const char *name, const char *path, bool folder, u64 size, u64 modified_tick) {
+    if (files_entry_count >= sizeof(files_entries) / sizeof(files_entries[0]) ||
+        files_entry_duplicate(path, folder)) {
+        return;
+    }
+    if (files_search[0] && !contains_text_ci(name, files_search) && !contains_text_ci(path, files_search)) {
+        return;
+    }
+
+    FileExplorerEntry *entry = &files_entries[files_entry_count++];
+    memset(entry, 0, sizeof(*entry));
+    strncpy(entry->name, name, sizeof(entry->name) - 1);
+    strncpy(entry->path, path, sizeof(entry->path) - 1);
+    entry->folder = folder;
+    entry->size = folder ? 0 : size;
+    entry->modified_tick = modified_tick;
+}
+
+static void files_rebuild_entries(void) {
+    files_entry_count = 0;
+    if (!files_current_path[0]) {
+        for (size_t i = 0; i < sizeof(file_locations) / sizeof(file_locations[0]); i++) {
+            files_add_entry(file_locations[i].label, file_locations[i].path, true, 0, 1);
+        }
+    }
+
+    for (size_t i = 0; i < fs_file_count(); i++) {
+        const FsFile *file = fs_get_file(i);
+        const char *rest = NULL;
+        if (!file || !path_in_folder(file->name, files_current_path, &rest) || !rest[0]) {
+            continue;
+        }
+
+        char name[FS_NAME_LENGTH];
+        size_t used = 0;
+        while (rest[used] && rest[used] != '/' && used + 1 < sizeof(name)) {
+            name[used] = rest[used];
+            used++;
+        }
+        name[used] = 0;
+        if (!name[0] || is_dir_marker_name(name)) {
+            continue;
+        }
+
+        char path[FS_NAME_LENGTH];
+        join_path(files_current_path, name, path, sizeof(path));
+        if (path_has_child_separator(rest)) {
+            files_add_entry(name, path, true, 0, file->modified_tick);
+        } else {
+            files_add_entry(name, file->name, false, file->size, file->modified_tick);
+        }
+    }
+
+    if (selected_file_index >= (i32)files_entry_count) {
+        selected_file_index = (i32)files_entry_count - 1;
+    }
+    if (selected_file_index < 0) {
+        selected_file_index = 0;
+    }
+    files_dirty = false;
+}
+
+static void files_ensure_entries(void) {
+    if (files_dirty) {
+        files_rebuild_entries();
+    }
+}
+
+static void files_clear_selection(void) {
+    files_ensure_entries();
+    for (size_t i = 0; i < files_entry_count; i++) {
+        files_entries[i].selected = false;
+    }
+}
+
+static void files_select_index(i32 index) {
+    files_ensure_entries();
+    if (index < 0 || index >= (i32)files_entry_count) {
+        return;
+    }
+    files_clear_selection();
+    selected_file_index = index;
+    files_entries[index].selected = true;
+}
+
+static void files_toggle_index(i32 index) {
+    files_ensure_entries();
+    if (index < 0 || index >= (i32)files_entry_count) {
+        return;
+    }
+    selected_file_index = index;
+    files_entries[index].selected = !files_entries[index].selected;
+}
+
+static FileExplorerEntry *files_primary_entry(void) {
+    files_ensure_entries();
+    for (size_t i = 0; i < files_entry_count; i++) {
+        if (files_entries[i].selected) {
+            selected_file_index = (i32)i;
+            return &files_entries[i];
+        }
+    }
+    if (selected_file_index >= 0 && selected_file_index < (i32)files_entry_count) {
+        return &files_entries[selected_file_index];
+    }
+    return NULL;
+}
+
+static bool files_any_selected(void) {
+    files_ensure_entries();
+    for (size_t i = 0; i < files_entry_count; i++) {
+        if (files_entries[i].selected) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool files_entry_should_act(size_t index, bool any_selected) {
+    if (index >= files_entry_count) {
+        return false;
+    }
+    return any_selected ? files_entries[index].selected : (i32)index == selected_file_index;
+}
+
+static void files_push_back(const char *path) {
+    if (files_back_count >= sizeof(files_back_stack) / sizeof(files_back_stack[0])) {
+        for (size_t i = 1; i < files_back_count; i++) {
+            strcpy(files_back_stack[i - 1], files_back_stack[i]);
+        }
+        files_back_count--;
+    }
+    strncpy(files_back_stack[files_back_count], path, FS_NAME_LENGTH - 1);
+    files_back_stack[files_back_count][FS_NAME_LENGTH - 1] = 0;
+    files_back_count++;
+}
+
+static bool files_pop_stack(char stack[8][FS_NAME_LENGTH], size_t *count, char *out, size_t out_size) {
+    if (*count == 0) {
+        return false;
+    }
+    (*count)--;
+    strncpy(out, stack[*count], out_size - 1);
+    out[out_size - 1] = 0;
+    return true;
+}
+
+static void files_navigate_to(const char *path, bool record_history) {
+    if (strcmp(files_current_path, path) == 0) {
+        return;
+    }
+    if (record_history) {
+        files_push_back(files_current_path);
+        files_forward_count = 0;
+    }
+    strncpy(files_current_path, path, sizeof(files_current_path) - 1);
+    files_current_path[sizeof(files_current_path) - 1] = 0;
+    selected_file_index = 0;
+    files_clear_selection();
+    files_mark_dirty();
+    set_taskbar_message("FOLDER OPENED");
+}
+
 static void make_untitled_name(char *out, size_t out_size) {
     char number[16];
     u64_to_dec(new_file_counter++, number, sizeof(number));
@@ -572,125 +963,370 @@ static void make_untitled_name(char *out, size_t out_size) {
     append_text(out, out_size, ".TXT");
 }
 
-static void make_file_variant_name(const char *source, const char *prefix, const char *suffix, char *out, size_t out_size) {
-    const char *base = source;
-    const char *slash = source;
-    while (*slash) {
-        if (*slash == '/') {
-            base = slash + 1;
+static void make_unique_path(const char *folder, const char *base, const char *suffix, char *out, size_t out_size) {
+    char candidate[FS_NAME_LENGTH];
+    join_path(folder, base, candidate, sizeof(candidate));
+    if (!fs_find(candidate) && !files_is_folder_path(candidate)) {
+        strncpy(out, candidate, out_size - 1);
+        out[out_size - 1] = 0;
+        return;
+    }
+    for (u32 i = 1; i < 20; i++) {
+        char number[8];
+        char name[FS_NAME_LENGTH];
+        u64_to_dec(i, number, sizeof(number));
+        name[0] = 0;
+        append_text(name, sizeof(name), base);
+        append_text(name, sizeof(name), suffix);
+        append_text(name, sizeof(name), number);
+        join_path(folder, name, candidate, sizeof(candidate));
+        if (!fs_find(candidate) && !files_is_folder_path(candidate)) {
+            strncpy(out, candidate, out_size - 1);
+            out[out_size - 1] = 0;
+            return;
         }
-        slash++;
+    }
+    strncpy(out, candidate, out_size - 1);
+    out[out_size - 1] = 0;
+}
+
+static bool files_copy_path(const char *source, bool folder, const char *dest) {
+    if (!folder) {
+        return fs_copy(source, dest);
     }
 
-    out[0] = 0;
-    append_text(out, out_size, prefix);
-    append_text(out, out_size, base);
-    append_text(out, out_size, suffix);
+    bool copied = false;
+    char prefix[FS_NAME_LENGTH];
+    prefix[0] = 0;
+    append_text(prefix, sizeof(prefix), source);
+    append_text(prefix, sizeof(prefix), "/");
+    size_t original_count = fs_file_count();
+    for (size_t i = 0; i < original_count; i++) {
+        const FsFile *file = fs_get_file(i);
+        if (!file || !starts_with(file->name, prefix)) {
+            continue;
+        }
+        char new_path[FS_NAME_LENGTH];
+        new_path[0] = 0;
+        append_text(new_path, sizeof(new_path), dest);
+        append_text(new_path, sizeof(new_path), "/");
+        append_text(new_path, sizeof(new_path), file->name + strlen(prefix));
+        copied = fs_copy(file->name, new_path) || copied;
+    }
+    if (!copied) {
+        char marker[FS_NAME_LENGTH];
+        dir_marker_path(dest, marker, sizeof(marker));
+        copied = fs_write(marker, "LiquidOS directory marker.");
+    }
+    return copied;
+}
+
+static bool files_move_path(const char *source, bool folder, const char *dest) {
+    if (!folder) {
+        return fs_rename(source, dest);
+    }
+
+    bool moved = false;
+    char prefix[FS_NAME_LENGTH];
+    prefix[0] = 0;
+    append_text(prefix, sizeof(prefix), source);
+    append_text(prefix, sizeof(prefix), "/");
+    size_t original_count = fs_file_count();
+    for (size_t i = 0; i < original_count; i++) {
+        const FsFile *file = fs_get_file(i);
+        char old_path[FS_NAME_LENGTH];
+        if (!file || !starts_with(file->name, prefix)) {
+            continue;
+        }
+        strncpy(old_path, file->name, sizeof(old_path) - 1);
+        old_path[sizeof(old_path) - 1] = 0;
+        char new_path[FS_NAME_LENGTH];
+        new_path[0] = 0;
+        append_text(new_path, sizeof(new_path), dest);
+        append_text(new_path, sizeof(new_path), "/");
+        append_text(new_path, sizeof(new_path), old_path + strlen(prefix));
+        moved = fs_rename(old_path, new_path) || moved;
+    }
+    return moved;
+}
+
+static bool files_delete_path(const char *path, bool folder) {
+    if (!folder) {
+        return fs_delete(path);
+    }
+
+    bool deleted = false;
+    char prefix[FS_NAME_LENGTH];
+    prefix[0] = 0;
+    append_text(prefix, sizeof(prefix), path);
+    append_text(prefix, sizeof(prefix), "/");
+
+    for (;;) {
+        char delete_name[FS_NAME_LENGTH];
+        delete_name[0] = 0;
+        for (size_t i = 0; i < fs_file_count(); i++) {
+            const FsFile *file = fs_get_file(i);
+            if (file && starts_with(file->name, prefix)) {
+                strncpy(delete_name, file->name, sizeof(delete_name) - 1);
+                delete_name[sizeof(delete_name) - 1] = 0;
+                break;
+            }
+        }
+        if (!delete_name[0]) {
+            break;
+        }
+        deleted = fs_delete(delete_name) || deleted;
+    }
+    return deleted;
+}
+
+static void files_create_folder(void) {
+    char folder_name[24];
+    char number[12];
+    u64_to_dec(new_folder_counter++, number, sizeof(number));
+    folder_name[0] = 0;
+    append_text(folder_name, sizeof(folder_name), "NEWFOLDER");
+    append_text(folder_name, sizeof(folder_name), number);
+
+    char folder[FS_NAME_LENGTH];
+    char marker[FS_NAME_LENGTH];
+    join_path(files_current_path, folder_name, folder, sizeof(folder));
+    dir_marker_path(folder, marker, sizeof(marker));
+    if (fs_write(marker, "LiquidOS directory marker.")) {
+        set_taskbar_message("FOLDER CREATED");
+        push_notification("Files", "Created a new folder.");
+    } else {
+        set_taskbar_message("NEW FOLDER FAILED");
+    }
+    files_mark_dirty();
+}
+
+static void files_copy_selection(bool cut) {
+    files_ensure_entries();
+    bool any_selected = files_any_selected();
+    files_clipboard_count = 0;
+
+    for (size_t i = 0; i < files_entry_count && files_clipboard_count < sizeof(files_clipboard_paths) / sizeof(files_clipboard_paths[0]); i++) {
+        if (!files_entry_should_act(i, any_selected)) {
+            continue;
+        }
+        strncpy(files_clipboard_paths[files_clipboard_count], files_entries[i].path, FS_NAME_LENGTH - 1);
+        files_clipboard_paths[files_clipboard_count][FS_NAME_LENGTH - 1] = 0;
+        files_clipboard_folders[files_clipboard_count] = files_entries[i].folder;
+        files_clipboard_count++;
+    }
+
+    if (files_clipboard_count == 0) {
+        return;
+    }
+
+    strncpy(files_clipboard_path, files_clipboard_paths[0], sizeof(files_clipboard_path) - 1);
+    files_clipboard_path[sizeof(files_clipboard_path) - 1] = 0;
+    files_clipboard_mode = cut ? FILE_CLIPBOARD_CUT : FILE_CLIPBOARD_COPY;
+    set_taskbar_message(cut ? "CUT" : "COPIED");
+}
+
+static void files_paste_clipboard(void) {
+    if (files_clipboard_mode == FILE_CLIPBOARD_EMPTY || files_clipboard_count == 0) {
+        set_taskbar_message("CLIPBOARD EMPTY");
+        return;
+    }
+
+    bool ok = false;
+    for (size_t i = 0; i < files_clipboard_count; i++) {
+        if (!files_clipboard_paths[i][0]) {
+            continue;
+        }
+        char dest[FS_NAME_LENGTH];
+        make_unique_path(files_current_path, last_path_segment(files_clipboard_paths[i]),
+                         files_clipboard_mode == FILE_CLIPBOARD_COPY ? "-COPY" : "-MOVED",
+                         dest, sizeof(dest));
+        bool item_ok = files_clipboard_mode == FILE_CLIPBOARD_CUT ?
+                       files_move_path(files_clipboard_paths[i], files_clipboard_folders[i], dest) :
+                       files_copy_path(files_clipboard_paths[i], files_clipboard_folders[i], dest);
+        ok = item_ok || ok;
+    }
+    if (ok) {
+        set_taskbar_message(files_clipboard_mode == FILE_CLIPBOARD_CUT ? "MOVED" : "PASTED");
+        push_notification("Files", files_clipboard_mode == FILE_CLIPBOARD_CUT ? "Moved item." : "Copied item.");
+        if (files_clipboard_mode == FILE_CLIPBOARD_CUT) {
+            files_clipboard_mode = FILE_CLIPBOARD_EMPTY;
+            files_clipboard_path[0] = 0;
+            files_clipboard_count = 0;
+        }
+    } else {
+        set_taskbar_message("PASTE FAILED");
+    }
+    files_mark_dirty();
+}
+
+static void files_rename_selection(void) {
+    FileExplorerEntry *entry = files_primary_entry();
+    if (!entry) {
+        return;
+    }
+    char parent[FS_NAME_LENGTH];
+    char new_base[FS_NAME_LENGTH];
+    char dest[FS_NAME_LENGTH];
+    parent_path(entry->path, parent, sizeof(parent));
+    new_base[0] = 0;
+    append_text(new_base, sizeof(new_base), "RENAMED-");
+    append_text(new_base, sizeof(new_base), entry->name);
+    join_path(parent, new_base, dest, sizeof(dest));
+    bool ok = entry->folder ? files_move_path(entry->path, true, dest) : fs_rename(entry->path, dest);
+    set_taskbar_message(ok ? "RENAMED" : "RENAME FAILED");
+    if (ok) {
+        push_notification("Files", "Renamed selected item.");
+    }
+    files_mark_dirty();
+}
+
+static void files_delete_selection(void) {
+    files_ensure_entries();
+    bool any_selected = files_any_selected();
+    bool any = false;
+    for (size_t i = 0; i < files_entry_count; i++) {
+        if (!files_entry_should_act(i, any_selected)) {
+            continue;
+        }
+        FileExplorerEntry entry = files_entries[i];
+        if (starts_with(entry.path, "TRASH/")) {
+            any = files_delete_path(entry.path, entry.folder) || any;
+            continue;
+        }
+        char dest[FS_NAME_LENGTH];
+        make_unique_path("TRASH", entry.name, "-OLD", dest, sizeof(dest));
+        any = (entry.folder ? files_move_path(entry.path, true, dest) : fs_rename(entry.path, dest)) || any;
+    }
+    set_taskbar_message(any ? "MOVED TO TRASH" : "DELETE FAILED");
+    if (any) {
+        push_notification("Files", "Moved selected item to Trash.");
+    }
+    files_mark_dirty();
+}
+
+static void files_go_back(void) {
+    char path[FS_NAME_LENGTH];
+    if (files_pop_stack(files_back_stack, &files_back_count, path, sizeof(path))) {
+        if (files_forward_count < sizeof(files_forward_stack) / sizeof(files_forward_stack[0])) {
+            strncpy(files_forward_stack[files_forward_count], files_current_path, FS_NAME_LENGTH - 1);
+            files_forward_stack[files_forward_count][FS_NAME_LENGTH - 1] = 0;
+            files_forward_count++;
+        }
+        files_navigate_to(path, false);
+    }
+}
+
+static void files_go_forward(void) {
+    char path[FS_NAME_LENGTH];
+    if (files_pop_stack(files_forward_stack, &files_forward_count, path, sizeof(path))) {
+        files_push_back(files_current_path);
+        files_navigate_to(path, false);
+    }
+}
+
+static void files_go_up(void) {
+    char parent[FS_NAME_LENGTH];
+    parent_path(files_current_path, parent, sizeof(parent));
+    files_navigate_to(parent, true);
+}
+
+static void files_run_command(FileCommand command) {
+    switch (command) {
+    case FILE_CMD_BACK: files_go_back(); break;
+    case FILE_CMD_FORWARD: files_go_forward(); break;
+    case FILE_CMD_UP: files_go_up(); break;
+    case FILE_CMD_NEW_FOLDER: files_create_folder(); break;
+    case FILE_CMD_COPY: files_copy_selection(false); break;
+    case FILE_CMD_CUT: files_copy_selection(true); break;
+    case FILE_CMD_PASTE: files_paste_clipboard(); break;
+    case FILE_CMD_RENAME: files_rename_selection(); break;
+    case FILE_CMD_DELETE: files_delete_selection(); break;
+    case FILE_CMD_REFRESH:
+        files_mark_dirty();
+        set_taskbar_message("REFRESHED");
+        break;
+    default:
+        break;
+    }
+}
+
+static void files_on_char(char ch) {
+    if (!files_search_editing) {
+        return;
+    }
+    size_t length = strlen(files_search);
+    if (ch == '\n') {
+        files_search_editing = false;
+    } else if (ch == '\b') {
+        if (length > 0) {
+            files_search[--length] = 0;
+        }
+    } else if (ch >= 32 && ch <= 126 && length + 1 < sizeof(files_search)) {
+        files_search[length] = ch;
+        files_search[length + 1] = 0;
+    }
+    selected_file_index = 0;
+    files_mark_dirty();
 }
 
 static void handle_files_click(const Window *window) {
     i32 x = window->x + 6;
     i32 y = window->y + 30;
     i32 width = window->width - 12;
+    i32 height = window->height - 36;
+    i32 sidebar_w = width < 650 ? 122 : 148;
+    i32 main_x = x + sidebar_w + 12;
+    i32 toolbar_y = y + 10;
+    i32 search_w = width < 720 ? 126 : 172;
+    i32 search_x = x + width - search_w - 16;
+    i32 row_y = y + 112;
+    i32 row_h = 34;
+    const i32 button_w[FILE_CMD_COUNT] = { 30, 30, 30, 82, 48, 42, 56, 68, 62, 62 };
+    i32 bx = main_x;
 
-    if (point_in_rect(mouse_x, mouse_y, x + 10, y + 10, 74, 28)) {
-        char name[FS_NAME_LENGTH];
-        make_untitled_name(name, sizeof(name));
-        if (fs_write(name, "New LiquidOS file. Edit it from Terminal with: write NAME text")) {
-            selected_file_index = fs_find_index(name);
-            set_taskbar_message("FILE CREATED");
-            push_notification("Files", "Created a new file.");
+    for (i32 i = 0; i < FILE_CMD_COUNT; i++) {
+        if (point_in_rect(mouse_x, mouse_y, bx, toolbar_y, button_w[i], 28)) {
+            files_run_command((FileCommand)i);
             mark_dirty_rect(window->x, window->y, window->width, window->height);
+            return;
         }
-        return;
+        bx += button_w[i] + 7;
+        if (bx > search_x - 16) {
+            break;
+        }
     }
 
-    if (point_in_rect(mouse_x, mouse_y, x + 92, y + 10, 86, 28)) {
-        const FsFile *file = fs_get_file((size_t)selected_file_index);
-        if (file && fs_delete(file->name)) {
-            if (selected_file_index >= (i32)fs_file_count()) {
-                selected_file_index = (i32)fs_file_count() - 1;
-            }
-            if (selected_file_index < 0) {
-                selected_file_index = 0;
-            }
-            set_taskbar_message("FILE DELETED");
-            push_notification("Files", "Deleted selected file.");
-            mark_dirty_rect(window->x, window->y, window->width, window->height);
-        }
-        return;
-    }
-
-    if (point_in_rect(mouse_x, mouse_y, x + 188, y + 10, 74, 28)) {
-        const FsFile *file = fs_get_file((size_t)selected_file_index);
-        char copy_name[FS_NAME_LENGTH];
-        if (file) {
-            make_file_variant_name(file->name, "DESKTOP/COPY-", "", copy_name, sizeof(copy_name));
-            if (fs_copy(file->name, copy_name)) {
-                selected_file_index = fs_find_index(copy_name);
-                strncpy(file_clipboard, copy_name, sizeof(file_clipboard) - 1);
-                file_clipboard[sizeof(file_clipboard) - 1] = 0;
-                set_taskbar_message("FILE COPIED");
-                push_notification("Files", "Copied selected file.");
-            } else {
-                set_taskbar_message("COPY FAILED");
-            }
-            mark_dirty_rect(window->x, window->y, window->width, window->height);
-        }
-        return;
-    }
-
-    if (point_in_rect(mouse_x, mouse_y, x + 270, y + 10, 86, 28)) {
-        const FsFile *file = fs_get_file((size_t)selected_file_index);
-        char new_name[FS_NAME_LENGTH];
-        if (file) {
-            make_file_variant_name(file->name, "DESKTOP/RENAMED-", "", new_name, sizeof(new_name));
-            if (fs_rename(file->name, new_name)) {
-                selected_file_index = fs_find_index(new_name);
-                set_taskbar_message("FILE RENAMED");
-                push_notification("Files", "Renamed selected file.");
-            } else {
-                set_taskbar_message("RENAME FAILED");
-            }
-            mark_dirty_rect(window->x, window->y, window->width, window->height);
-        }
-        return;
-    }
-
-    if (point_in_rect(mouse_x, mouse_y, x + 364, y + 10, 72, 28)) {
-        const FsFile *file = fs_get_file((size_t)selected_file_index);
-        char moved_name[FS_NAME_LENGTH];
-        if (file) {
-            make_file_variant_name(file->name, "DOCUMENTS/", "", moved_name, sizeof(moved_name));
-            if (fs_rename(file->name, moved_name)) {
-                selected_file_index = fs_find_index(moved_name);
-                set_taskbar_message("FILE MOVED");
-                push_notification("Files", "Moved selected file.");
-            } else {
-                set_taskbar_message("MOVE FAILED");
-            }
-            mark_dirty_rect(window->x, window->y, window->width, window->height);
-        }
-        return;
-    }
-
-    if (point_in_rect(mouse_x, mouse_y, x + 444, y + 10, 112, 28)) {
-        fs_write("DESKTOP/DEMO.TXT", "Saved from the graphical Files app. This file lives in the LiquidOS RAM filesystem.");
-        selected_file_index = fs_find_index("DESKTOP/DEMO.TXT");
-        set_taskbar_message("FILE SAVED");
-        push_notification("Files", "Saved DESKTOP/DEMO.TXT.");
+    if (point_in_rect(mouse_x, mouse_y, search_x, toolbar_y, search_w, 28)) {
+        files_search_editing = true;
         mark_dirty_rect(window->x, window->y, window->width, window->height);
         return;
     }
+    files_search_editing = false;
 
-    i32 row_y = y + 58;
-    i32 row_h = 25;
-    i32 list_w = width / 2 - 16;
-    if (point_in_rect(mouse_x, mouse_y, x + 10, row_y, list_w, row_h * (i32)fs_file_count())) {
+    i32 loc_y = y + 62;
+    for (size_t i = 0; i < sizeof(file_locations) / sizeof(file_locations[0]); i++) {
+        if (point_in_rect(mouse_x, mouse_y, x + 12, loc_y + (i32)i * 30, sidebar_w - 22, 25)) {
+            files_navigate_to(file_locations[i].path, true);
+            mark_dirty_rect(window->x, window->y, window->width, window->height);
+            return;
+        }
+    }
+
+    files_ensure_entries();
+    i32 list_h = height - 126;
+    if (point_in_rect(mouse_x, mouse_y, main_x, row_y, width - sidebar_w - 28, list_h)) {
         i32 row = (mouse_y - row_y) / row_h;
-        if (row >= 0 && row < (i32)fs_file_count()) {
-            selected_file_index = row;
-            set_taskbar_message("FILE SELECTED");
+        if (row >= 0 && row < (i32)files_entry_count) {
+            if (point_in_rect(mouse_x, mouse_y, main_x + 8, row_y + row * row_h + 9, 16, 16)) {
+                files_toggle_index(row);
+                set_taskbar_message("MULTI SELECT");
+            } else if (files_entries[row].folder) {
+                files_navigate_to(files_entries[row].path, true);
+            } else {
+                files_select_index(row);
+                set_taskbar_message("FILE SELECTED");
+            }
             mark_dirty_rect(window->x, window->y, window->width, window->height);
         }
     }
@@ -950,7 +1586,7 @@ static void handle_desktop_click(void) {
             char name[FS_NAME_LENGTH];
             make_untitled_name(name, sizeof(name));
             if (fs_write(name, "Created from the LiquidOS desktop context menu.")) {
-                selected_file_index = fs_find_index(name);
+                files_mark_dirty();
                 set_taskbar_message("FILE CREATED");
                 push_notification("Desktop", "Created a new desktop file.");
             }
@@ -1393,56 +2029,171 @@ static void draw_button(i32 x, i32 y, i32 width, const char *label, bool active)
     draw_glass_chip(x, y, width, 28, label, active);
 }
 
+static void draw_text_trimmed(i32 x, i32 y, const char *text, size_t max_chars, Color color) {
+    char out[96];
+    size_t used = 0;
+    while (text[used] && used < max_chars && used + 1 < sizeof(out)) {
+        out[used] = text[used];
+        used++;
+    }
+    if (text[used] && used > 3) {
+        out[used - 3] = '.';
+        out[used - 2] = '.';
+        out[used - 1] = '.';
+    }
+    out[used] = 0;
+    gfx_draw_text(x, y, out, color, 1);
+}
+
+static void format_size_text(u64 size, bool folder, char *out, size_t out_size) {
+    if (folder) {
+        strncpy(out, "--", out_size - 1);
+        out[out_size - 1] = 0;
+        return;
+    }
+    char number[24];
+    u64_to_dec(size, number, sizeof(number));
+    out[0] = 0;
+    append_text(out, out_size, number);
+    append_text(out, out_size, " B");
+}
+
+static void format_modified_text(u64 tick, char *out, size_t out_size) {
+    char number[24];
+    u64_to_dec(tick, number, sizeof(number));
+    out[0] = 0;
+    append_text(out, out_size, "T+");
+    append_text(out, out_size, number);
+}
+
+static void draw_file_icon(i32 x, i32 y, bool folder, bool selected) {
+    if (folder) {
+        gfx_fill_round_rect_alpha(x, y + 4, 25, 20, 7, RGB(235, 190, 78), selected ? 245 : 220);
+        gfx_fill_round_rect_alpha(x + 3, y, 12, 9, 4, RGB(252, 218, 115), selected ? 245 : 220);
+        gfx_fill_round_rect_alpha(x + 2, y + 8, 28, 20, 7, RGB(246, 204, 83), selected ? 245 : 230);
+        gfx_draw_round_rect_alpha(x + 2, y + 8, 28, 20, 7, RGB(255, 248, 210), 70);
+    } else {
+        gfx_fill_round_rect_alpha(x + 3, y, 24, 30, 7, RGB(232, 244, 255), selected ? 245 : 225);
+        gfx_fill_rect(x + 8, y + 9, 14, 1, RGB(120, 152, 184));
+        gfx_fill_rect(x + 8, y + 15, 12, 1, RGB(120, 152, 184));
+        gfx_fill_rect(x + 8, y + 21, 15, 1, RGB(120, 152, 184));
+        gfx_draw_round_rect_alpha(x + 3, y, 24, 30, 7, RGB(255, 255, 255), 70);
+    }
+}
+
 static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
+    const DesktopTheme *theme = &themes[current_theme];
+    static const char *command_labels[FILE_CMD_COUNT] = {
+        "<", ">", "^", "New folder", "Copy", "Cut", "Paste", "Rename", "Trash", "Refresh"
+    };
+    static const i32 button_w[FILE_CMD_COUNT] = { 30, 30, 30, 82, 48, 42, 56, 68, 62, 62 };
+
+    files_ensure_entries();
     draw_glass_panel(x, y, width, height, 16);
-    gfx_fill_round_rect_alpha(x + 8, y + 8, width - 16, 42, 14, RGB(255, 255, 255), 75);
-    draw_button(x + 10, y + 10, 74, "NEW", false);
-    draw_button(x + 92, y + 10, 86, "DELETE", false);
-    draw_button(x + 188, y + 10, 74, "COPY", false);
-    draw_button(x + 270, y + 10, 86, "RENAME", false);
-    draw_button(x + 364, y + 10, 72, "MOVE", false);
-    draw_button(x + 444, y + 10, 112, "SAVE DEMO", false);
+    i32 sidebar_w = width < 650 ? 122 : 148;
+    i32 main_x = x + sidebar_w + 12;
+    i32 toolbar_y = y + 10;
+    i32 search_w = width < 720 ? 126 : 172;
+    i32 search_x = x + width - search_w - 16;
+    i32 preview_w = width > 760 ? 188 : 0;
+    i32 list_w = width - sidebar_w - preview_w - 34;
+    i32 row_y = y + 112;
+    i32 row_h = 34;
 
-    i32 list_w = width / 2 - 16;
-    i32 preview_x = x + list_w + 22;
-    i32 row_y = y + 58;
-    i32 row_h = 25;
-    gfx_draw_text(x + 12, y + 42, "RAM FILESYSTEM", RGB(77, 88, 96), 1);
-
-    size_t count = fs_file_count();
-    if (selected_file_index >= (i32)count) {
-        selected_file_index = (i32)count - 1;
-    }
-    if (selected_file_index < 0) {
-        selected_file_index = 0;
-    }
-
-    for (size_t i = 0; i < count; i++) {
-        const FsFile *file = fs_get_file(i);
-        if (!file) {
-            continue;
+    gfx_fill_round_rect_alpha(x + 8, y + 8, width - 16, 42, 14, RGB(255, 255, 255), 52);
+    i32 bx = main_x;
+    for (i32 i = 0; i < FILE_CMD_COUNT; i++) {
+        if (bx + button_w[i] > search_x - 14) {
+            break;
         }
-
-        bool selected = (i32)i == selected_file_index;
-        Color row = selected ? RGB(208, 224, 246) : RGB(255, 255, 255);
-        gfx_fill_round_rect_alpha(x + 10, row_y - 3, list_w, row_h - 3, 7, row, selected ? 170 : 92);
-
-        char size_text[24];
-        u64_to_dec(file->size, size_text, sizeof(size_text));
-        gfx_draw_text(x + 20, row_y + 2, file->name, selected ? RGB(22, 55, 94) : RGB(44, 53, 60), 1);
-        gfx_draw_text(x + list_w - 54, row_y + 2, size_text, RGB(101, 113, 121), 1);
-        row_y += row_h;
+        draw_button(bx, toolbar_y, button_w[i], command_labels[i], false);
+        bx += button_w[i] + 7;
     }
 
-    draw_glass_panel(preview_x, y + 58, width - list_w - 34, height - 72, 16);
-    const FsFile *selected = fs_get_file((size_t)selected_file_index);
-    if (selected) {
-        gfx_draw_text(preview_x + 14, y + 74, selected->name, RGB(35, 43, 50), 1);
-        gfx_fill_rect(preview_x + 14, y + 96, width - list_w - 62, 1, RGB(218, 226, 232));
-        gfx_draw_text(preview_x + 14, y + 112, selected->contents[0] ? selected->contents : "(empty file)", RGB(71, 82, 90), 1);
-        if (file_clipboard[0]) {
-            gfx_draw_text(preview_x + 14, y + height - 36, "Clipboard:", RGB(88, 98, 108), 1);
-            gfx_draw_text(preview_x + 96, y + height - 36, file_clipboard, RGB(48, 58, 68), 1);
+    gfx_liquid_glass_rect(search_x, toolbar_y, search_w, 28, 14);
+    gfx_fill_round_rect_alpha(search_x, toolbar_y, search_w, 28, 14, RGB(255, 255, 255), files_search_editing ? 88 : 48);
+    gfx_draw_text(search_x + 12, toolbar_y + 9, files_search[0] ? files_search : "Search", files_search[0] ? theme->text : RGB(112, 124, 136), 1);
+
+    draw_glass_panel(x + 10, y + 58, sidebar_w - 18, height - 70, 18);
+    gfx_draw_text(x + 24, y + 72, "Locations", theme->text, 1);
+    i32 loc_y = y + 96;
+    for (size_t i = 0; i < sizeof(file_locations) / sizeof(file_locations[0]); i++) {
+        bool active = strcmp(files_current_path, file_locations[i].path) == 0;
+        gfx_fill_round_rect_alpha(x + 18, loc_y, sidebar_w - 34, 25, 10,
+                                  active ? theme->accent : RGB(255, 255, 255), active ? 82 : 28);
+        gfx_draw_text(x + 30, loc_y + 8, file_locations[i].label, active ? RGB(255, 255, 255) : RGB(48, 58, 68), 1);
+        loc_y += 30;
+    }
+
+    gfx_liquid_glass_rect(main_x, y + 56, list_w + preview_w + 10, 42, 16);
+    gfx_fill_round_rect_alpha(main_x, y + 56, list_w + preview_w + 10, 42, 16, RGB(255, 255, 255), 40);
+    gfx_draw_text(main_x + 14, y + 70, files_current_path[0] ? "LiquidOS > " : "LiquidOS", RGB(92, 102, 112), 1);
+    draw_text_trimmed(main_x + 92, y + 70, files_current_path[0] ? files_current_path : "Home", 44, theme->text);
+
+    gfx_draw_text(main_x + 10, y + 102, "Name", RGB(88, 98, 108), 1);
+    gfx_draw_text(main_x + list_w - 202, y + 102, "Type", RGB(88, 98, 108), 1);
+    gfx_draw_text(main_x + list_w - 132, y + 102, "Size", RGB(88, 98, 108), 1);
+    gfx_draw_text(main_x + list_w - 74, y + 102, "Modified", RGB(88, 98, 108), 1);
+
+    size_t visible_rows = (size_t)((height - 130) / row_h);
+    if (visible_rows > files_entry_count) {
+        visible_rows = files_entry_count;
+    }
+    for (size_t i = 0; i < visible_rows; i++) {
+        FileExplorerEntry *entry = &files_entries[i];
+        bool selected = entry->selected || (i32)i == selected_file_index;
+        i32 ry = row_y + (i32)i * row_h;
+        gfx_fill_round_rect_alpha(main_x, ry, list_w, row_h - 4, 11,
+                                  selected ? RGB(210, 228, 255) : RGB(255, 255, 255), selected ? 132 : 38);
+        gfx_draw_round_rect_alpha(main_x + 8, ry + 9, 16, 16, 5, selected ? theme->accent : RGB(170, 182, 194), 120);
+        if (entry->selected) {
+            gfx_fill_round_rect_alpha(main_x + 11, ry + 12, 10, 10, 4, theme->accent, 220);
+        }
+        draw_file_icon(main_x + 32, ry + 4, entry->folder, selected);
+        size_t name_chars = list_w > 330 ? (size_t)((list_w - 300) / 7) : 10;
+        draw_text_trimmed(main_x + 70, ry + 10, entry->name, name_chars, selected ? RGB(22, 55, 94) : theme->text);
+        gfx_draw_text(main_x + list_w - 202, ry + 10, file_type_for_name(entry->name, entry->folder), RGB(88, 98, 108), 1);
+        char size_text[24];
+        char modified_text[24];
+        format_size_text(entry->size, entry->folder, size_text, sizeof(size_text));
+        format_modified_text(entry->modified_tick, modified_text, sizeof(modified_text));
+        gfx_draw_text(main_x + list_w - 132, ry + 10, size_text, RGB(88, 98, 108), 1);
+        gfx_draw_text(main_x + list_w - 74, ry + 10, modified_text, RGB(88, 98, 108), 1);
+    }
+
+    if (files_entry_count == 0) {
+        gfx_draw_text(main_x + 18, row_y + 16, "This folder is empty.", RGB(94, 106, 118), 1);
+    }
+
+    if (preview_w > 0) {
+        i32 px = main_x + list_w + 12;
+        draw_glass_panel(px, row_y, preview_w, height - 126, 18);
+        FileExplorerEntry *selected = files_primary_entry();
+        gfx_draw_text(px + 14, row_y + 16, "Details", theme->text, 1);
+        if (selected) {
+            draw_file_icon(px + 16, row_y + 44, selected->folder, true);
+            draw_text_trimmed(px + 54, row_y + 50, selected->name, 17, theme->text);
+            gfx_draw_text(px + 16, row_y + 92, "Type", RGB(100, 112, 124), 1);
+            gfx_draw_text(px + 74, row_y + 92, file_type_for_name(selected->name, selected->folder), theme->text, 1);
+            char size_text[24];
+            char modified_text[24];
+            format_size_text(selected->size, selected->folder, size_text, sizeof(size_text));
+            format_modified_text(selected->modified_tick, modified_text, sizeof(modified_text));
+            gfx_draw_text(px + 16, row_y + 116, "Size", RGB(100, 112, 124), 1);
+            gfx_draw_text(px + 74, row_y + 116, size_text, theme->text, 1);
+            gfx_draw_text(px + 16, row_y + 140, "Modified", RGB(100, 112, 124), 1);
+            gfx_draw_text(px + 88, row_y + 140, modified_text, theme->text, 1);
+            gfx_draw_text(px + 16, row_y + 166, "Path", RGB(100, 112, 124), 1);
+            draw_text_trimmed(px + 16, row_y + 184, selected->path, 22, theme->text);
+            if (!selected->folder) {
+                const FsFile *file = fs_find(selected->path);
+                gfx_draw_text(px + 16, row_y + 214, "Preview", RGB(100, 112, 124), 1);
+                draw_text_trimmed(px + 16, row_y + 232, file && file->contents[0] ? file->contents : "(empty file)", 22, theme->text);
+            }
+        }
+        if (files_clipboard_mode != FILE_CLIPBOARD_EMPTY) {
+            gfx_draw_text(px + 16, y + height - 34, files_clipboard_mode == FILE_CLIPBOARD_COPY ? "Clipboard: copy" : "Clipboard: cut",
+                          RGB(88, 98, 108), 1);
         }
     }
 }
@@ -1929,6 +2680,9 @@ void ui_handle_event(const InputEvent *event) {
         } else if (focused_window == WINDOW_BROWSER && windows[WINDOW_BROWSER].open) {
             liqueia_on_char(event->ch);
             mark_dirty_window(WINDOW_BROWSER);
+        } else if (focused_window == WINDOW_FILES && windows[WINDOW_FILES].open) {
+            files_on_char(event->ch);
+            mark_dirty_window(WINDOW_FILES);
         }
         return;
     }

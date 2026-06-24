@@ -3,13 +3,14 @@
 
 #include <liquidos/types.h>
 
-#define FS_NAME_LENGTH 40
+#define FS_NAME_LENGTH 64
 #define FS_CONTENT_LENGTH 384
 
 typedef struct FsFile {
     char name[FS_NAME_LENGTH];
     char contents[FS_CONTENT_LENGTH];
     u64 size;
+    u64 modified_tick;
     bool used;
 } FsFile;
 

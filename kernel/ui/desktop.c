@@ -2278,8 +2278,15 @@ static void draw_liquid_reference_glass(i32 x, i32 y, i32 width, i32 height, i32
     }
     i32 inner_radius = radius > 2 ? radius - 2 : radius;
     gfx_liquid_glass_rect(x, y, width, height, radius);
-    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 104);
-    gfx_draw_round_rect_alpha(x + 1, y + 1, width - 2, height - 2, inner_radius, RGB(255, 255, 255), 34);
+    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 86);
+    gfx_draw_round_rect_alpha(x + 1, y + 1, width - 2, height - 2, inner_radius, RGB(255, 255, 255), 26);
+    if (radius > 8) {
+        i32 corner = radius / 3;
+        gfx_fill_circle_alpha(x + radius / 2, y + radius / 2, corner, RGB(248, 252, 255), 12);
+        gfx_fill_circle_alpha(x + width - radius / 2, y + radius / 2, corner, RGB(248, 252, 255), 10);
+        gfx_fill_circle_alpha(x + radius / 2, y + height - radius / 2, corner, RGB(248, 252, 255), 8);
+        gfx_fill_circle_alpha(x + width - radius / 2, y + height - radius / 2, corner, RGB(248, 252, 255), 8);
+    }
 }
 
 static void draw_glass_panel(i32 x, i32 y, i32 width, i32 height, i32 radius) {

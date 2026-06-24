@@ -416,17 +416,16 @@ void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
             put_pixel(px, py, blend(get_pixel(px, py), color, effective));
 
             if (local_y < 3) {
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((58 * coverage) / 255)));
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((40 * coverage) / 255)));
             } else if (from_bottom < 3) {
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((58 * coverage) / 255)));
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((40 * coverage) / 255)));
             }
             if (from_bottom < 12) {
                 put_pixel(px, py, blend(get_pixel(px, py), RGB(0, 0, 42), (u8)((22 * coverage) / 255)));
             }
             if (edge < 3) {
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(218, 246, 255), (u8)(((3 - edge) * 50 * coverage) / 255)));
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(218, 246, 255), (u8)(((3 - edge) * 42 * coverage) / 255)));
             }
-
             bool near_edge = local_y < 5 || from_bottom < 5 || edge < 5;
             if (near_edge) {
                 Color ambient = get_pixel(px, py);
@@ -441,7 +440,7 @@ void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
                 }
 
                 i32 rim_distance = local_y < 5 ? local_y : (from_bottom < 5 ? from_bottom : edge);
-                u8 rim = (u8)(((5 - rim_distance) * (local_y < 5 || from_bottom < 5 ? 22 : 31) * coverage) / 255);
+                u8 rim = (u8)(((5 - rim_distance) * (local_y < 5 || from_bottom < 5 ? 18 : 26) * coverage) / 255);
                 put_pixel(px, py, blend(get_pixel(px, py), ambient, rim));
                 put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((rim * 4) / 5)));
             }
@@ -449,13 +448,13 @@ void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
             i32 small = width < 180 || height < 46;
             u8 h1 = liquid_highlight_alpha(px, py, x + width / 13, y + height / 5,
                                            small ? width / 5 : width / 7,
-                                           small ? height / 3 : height / 2, 108);
+                                           small ? height / 3 : height / 2, 96);
             u8 h2 = liquid_highlight_alpha(px, py, x + (width * 79) / 100, y + height / 3,
                                            small ? width / 7 : width / 10,
-                                           small ? height / 3 : (height * 7) / 10, 84);
+                                           small ? height / 3 : (height * 7) / 10, 74);
             u8 h3 = liquid_highlight_alpha(px, py, x + width / 2, y + 3,
                                            small ? width / 3 : (width * 3) / 10,
-                                           5, 58);
+                                           4, 38);
             u8 glow = h1 > h2 ? h1 : h2;
             glow = glow > h3 ? glow : h3;
             if (glow) {

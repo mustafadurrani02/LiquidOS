@@ -93,11 +93,6 @@ typedef struct DockApp {
     bool small_artwork;
 } DockApp;
 
-typedef struct FileLocation {
-    const char *label;
-    const char *path;
-} FileLocation;
-
 typedef struct FileExplorerEntry {
     char name[FS_NAME_LENGTH];
     char path[FS_NAME_LENGTH];
@@ -139,19 +134,6 @@ static const DockApp dock_apps[] = {
     { WINDOW_FILES, "FILES", app_icon_files_argb, APP_ICON_FILES_WIDTH, APP_ICON_FILES_HEIGHT, RGB(238, 145, 255), RGB(116, 62, 218), true },
     { WINDOW_TERMINAL, "TERMINAL", app_icon_terminal_argb, APP_ICON_TERMINAL_WIDTH, APP_ICON_TERMINAL_HEIGHT, RGB(38, 42, 75), RGB(8, 9, 22), true },
     { WINDOW_SETTINGS, "SETTINGS", app_icon_settings_argb, APP_ICON_SETTINGS_WIDTH, APP_ICON_SETTINGS_HEIGHT, RGB(104, 130, 164), RGB(54, 61, 78), false },
-};
-
-static const FileLocation file_locations[] = {
-    { "Home", "HOME" },
-    { "Desktop", "DESKTOP" },
-    { "Documents", "DOCUMENTS" },
-    { "Downloads", "DOWNLOADS" },
-    { "Pictures", "PICTURES" },
-    { "Music", "MUSIC" },
-    { "Videos", "VIDEOS" },
-    { "Applications", "APPS" },
-    { "System", "SYSTEM" },
-    { "Trash", "TRASH" },
 };
 
 static Window windows[WINDOW_COUNT];
@@ -223,6 +205,90 @@ static void window_title_group_layout(const Window *window, i32 *title_x, i32 *t
 
 static i32 dock_app_count(void) {
     return (i32)(sizeof(dock_apps) / sizeof(dock_apps[0]));
+}
+
+static size_t file_location_count(void) {
+    return 10;
+}
+
+static bool path_is_home(const char *path) {
+    return path[0] == 'H' && path[1] == 'O' && path[2] == 'M' && path[3] == 'E' && path[4] == 0;
+}
+
+static bool path_is_desktop(const char *path) {
+    return path[0] == 'D' && path[1] == 'E' && path[2] == 'S' && path[3] == 'K' &&
+           path[4] == 'T' && path[5] == 'O' && path[6] == 'P' && path[7] == 0;
+}
+
+static bool path_is_documents(const char *path) {
+    return path[0] == 'D' && path[1] == 'O' && path[2] == 'C' && path[3] == 'U' &&
+           path[4] == 'M' && path[5] == 'E' && path[6] == 'N' && path[7] == 'T' &&
+           path[8] == 'S' && path[9] == 0;
+}
+
+static bool path_is_downloads(const char *path) {
+    return path[0] == 'D' && path[1] == 'O' && path[2] == 'W' && path[3] == 'N' &&
+           path[4] == 'L' && path[5] == 'O' && path[6] == 'A' && path[7] == 'D' &&
+           path[8] == 'S' && path[9] == 0;
+}
+
+static bool path_is_pictures(const char *path) {
+    return path[0] == 'P' && path[1] == 'I' && path[2] == 'C' && path[3] == 'T' &&
+           path[4] == 'U' && path[5] == 'R' && path[6] == 'E' && path[7] == 'S' &&
+           path[8] == 0;
+}
+
+static bool path_is_music(const char *path) {
+    return path[0] == 'M' && path[1] == 'U' && path[2] == 'S' && path[3] == 'I' &&
+           path[4] == 'C' && path[5] == 0;
+}
+
+static bool path_is_videos(const char *path) {
+    return path[0] == 'V' && path[1] == 'I' && path[2] == 'D' && path[3] == 'E' &&
+           path[4] == 'O' && path[5] == 'S' && path[6] == 0;
+}
+
+static bool path_is_apps(const char *path) {
+    return path[0] == 'A' && path[1] == 'P' && path[2] == 'P' && path[3] == 'S' && path[4] == 0;
+}
+
+static bool path_is_system(const char *path) {
+    return path[0] == 'S' && path[1] == 'Y' && path[2] == 'S' && path[3] == 'T' &&
+           path[4] == 'E' && path[5] == 'M' && path[6] == 0;
+}
+
+static bool path_is_trash(const char *path) {
+    return path[0] == 'T' && path[1] == 'R' && path[2] == 'A' && path[3] == 'S' &&
+           path[4] == 'H' && path[5] == 0;
+}
+
+static bool file_location_matches(size_t index, const char *path) {
+    if (!path) return false;
+    if (index == 0) return path_is_home(path);
+    if (index == 1) return path_is_desktop(path);
+    if (index == 2) return path_is_documents(path);
+    if (index == 3) return path_is_downloads(path);
+    if (index == 4) return path_is_pictures(path);
+    if (index == 5) return path_is_music(path);
+    if (index == 6) return path_is_videos(path);
+    if (index == 7) return path_is_apps(path);
+    if (index == 8) return path_is_system(path);
+    if (index == 9) return path_is_trash(path);
+    return false;
+}
+
+static i32 file_command_width(FileCommand command) {
+    if (command == FILE_CMD_BACK) return 30;
+    if (command == FILE_CMD_FORWARD) return 30;
+    if (command == FILE_CMD_UP) return 30;
+    if (command == FILE_CMD_NEW_FOLDER) return 82;
+    if (command == FILE_CMD_COPY) return 48;
+    if (command == FILE_CMD_CUT) return 42;
+    if (command == FILE_CMD_PASTE) return 56;
+    if (command == FILE_CMD_RENAME) return 68;
+    if (command == FILE_CMD_DELETE) return 62;
+    if (command == FILE_CMD_REFRESH) return 62;
+    return 0;
 }
 
 static i32 dock_scale(void) {
@@ -718,7 +784,7 @@ static bool path_has_child_separator(const char *text) {
 }
 
 static bool is_dir_marker_name(const char *name) {
-    return strcmp(name, ".DIR") == 0;
+    return name[0] == '.' && name[1] == 'D' && name[2] == 'I' && name[3] == 'R' && name[4] == 0;
 }
 
 static void dir_marker_path(const char *folder, char *out, size_t out_size) {
@@ -742,8 +808,8 @@ static bool files_is_folder_path(const char *path) {
             return true;
         }
     }
-    for (size_t i = 0; i < sizeof(file_locations) / sizeof(file_locations[0]); i++) {
-        if (strcmp(file_locations[i].path, path) == 0) {
+    for (size_t i = 0; i < file_location_count(); i++) {
+        if (file_location_matches(i, path)) {
             return true;
         }
     }
@@ -763,16 +829,16 @@ static const char *file_type_for_name(const char *name, bool folder) {
     if (!dot) {
         return "File";
     }
-    if (strcmp(dot, ".TXT") == 0) {
+    if (dot[0] == '.' && dot[1] == 'T' && dot[2] == 'X' && dot[3] == 'T' && dot[4] == 0) {
         return "Text";
     }
-    if (strcmp(dot, ".APP") == 0) {
+    if (dot[0] == '.' && dot[1] == 'A' && dot[2] == 'P' && dot[3] == 'P' && dot[4] == 0) {
         return "App";
     }
-    if (strcmp(dot, ".HTML") == 0) {
+    if (dot[0] == '.' && dot[1] == 'H' && dot[2] == 'T' && dot[3] == 'M' && dot[4] == 'L' && dot[5] == 0) {
         return "Web";
     }
-    if (strcmp(dot, ".LPKG") == 0) {
+    if (dot[0] == '.' && dot[1] == 'L' && dot[2] == 'P' && dot[3] == 'K' && dot[4] == 'G' && dot[5] == 0) {
         return "Package";
     }
     return dot + 1;
@@ -809,11 +875,24 @@ static void files_add_entry(const char *name, const char *path, bool folder, u64
     entry->modified_tick = modified_tick;
 }
 
+static void files_add_root_location_entry(size_t index) {
+    if (index == 0) { files_add_entry("Home", "HOME", true, 0, 1); return; }
+    if (index == 1) { files_add_entry("Desktop", "DESKTOP", true, 0, 1); return; }
+    if (index == 2) { files_add_entry("Documents", "DOCUMENTS", true, 0, 1); return; }
+    if (index == 3) { files_add_entry("Downloads", "DOWNLOADS", true, 0, 1); return; }
+    if (index == 4) { files_add_entry("Pictures", "PICTURES", true, 0, 1); return; }
+    if (index == 5) { files_add_entry("Music", "MUSIC", true, 0, 1); return; }
+    if (index == 6) { files_add_entry("Videos", "VIDEOS", true, 0, 1); return; }
+    if (index == 7) { files_add_entry("Applications", "APPS", true, 0, 1); return; }
+    if (index == 8) { files_add_entry("System", "SYSTEM", true, 0, 1); return; }
+    if (index == 9) { files_add_entry("Trash", "TRASH", true, 0, 1); return; }
+}
+
 static void files_rebuild_entries(void) {
     files_entry_count = 0;
     if (!files_current_path[0]) {
-        for (size_t i = 0; i < sizeof(file_locations) / sizeof(file_locations[0]); i++) {
-            files_add_entry(file_locations[i].label, file_locations[i].path, true, 0, 1);
+        for (size_t i = 0; i < file_location_count(); i++) {
+            files_add_root_location_entry(i);
         }
     }
 
@@ -952,6 +1031,19 @@ static void files_navigate_to(const char *path, bool record_history) {
     files_clear_selection();
     files_mark_dirty();
     set_taskbar_message("FOLDER OPENED");
+}
+
+static void files_navigate_to_location(size_t index, bool record_history) {
+    if (index == 0) { files_navigate_to("HOME", record_history); return; }
+    if (index == 1) { files_navigate_to("DESKTOP", record_history); return; }
+    if (index == 2) { files_navigate_to("DOCUMENTS", record_history); return; }
+    if (index == 3) { files_navigate_to("DOWNLOADS", record_history); return; }
+    if (index == 4) { files_navigate_to("PICTURES", record_history); return; }
+    if (index == 5) { files_navigate_to("MUSIC", record_history); return; }
+    if (index == 6) { files_navigate_to("VIDEOS", record_history); return; }
+    if (index == 7) { files_navigate_to("APPS", record_history); return; }
+    if (index == 8) { files_navigate_to("SYSTEM", record_history); return; }
+    if (index == 9) { files_navigate_to("TRASH", record_history); return; }
 }
 
 static void make_untitled_name(char *out, size_t out_size) {
@@ -1282,16 +1374,16 @@ static void handle_files_click(const Window *window) {
     i32 search_x = x + width - search_w - 16;
     i32 row_y = y + 112;
     i32 row_h = 34;
-    const i32 button_w[FILE_CMD_COUNT] = { 30, 30, 30, 82, 48, 42, 56, 68, 62, 62 };
     i32 bx = main_x;
 
     for (i32 i = 0; i < FILE_CMD_COUNT; i++) {
-        if (point_in_rect(mouse_x, mouse_y, bx, toolbar_y, button_w[i], 28)) {
+        i32 button_w = file_command_width((FileCommand)i);
+        if (point_in_rect(mouse_x, mouse_y, bx, toolbar_y, button_w, 28)) {
             files_run_command((FileCommand)i);
             mark_dirty_rect(window->x, window->y, window->width, window->height);
             return;
         }
-        bx += button_w[i] + 7;
+        bx += button_w + 7;
         if (bx > search_x - 16) {
             break;
         }
@@ -1305,9 +1397,9 @@ static void handle_files_click(const Window *window) {
     files_search_editing = false;
 
     i32 loc_y = y + 62;
-    for (size_t i = 0; i < sizeof(file_locations) / sizeof(file_locations[0]); i++) {
+    for (size_t i = 0; i < file_location_count(); i++) {
         if (point_in_rect(mouse_x, mouse_y, x + 12, loc_y + (i32)i * 30, sidebar_w - 22, 25)) {
-            files_navigate_to(file_locations[i].path, true);
+            files_navigate_to_location(i, true);
             mark_dirty_rect(window->x, window->y, window->width, window->height);
             return;
         }
@@ -1843,8 +1935,17 @@ static i32 window_control_gap(void) {
     return 7;
 }
 
+static bool ui_text_pointer_valid(const char *text) {
+    uintptr_t value = (uintptr_t)text;
+    return value >= 0x1000 && value < 0x40000000ULL;
+}
+
+static const char *window_safe_title(const Window *window) {
+    return (window && ui_text_pointer_valid(window->title)) ? window->title : "Window";
+}
+
 static i32 window_title_chip_width(const Window *window) {
-    i32 width = 78 + (i32)strlen(window->title) * 6;
+    i32 width = 78 + (i32)strlen(window_safe_title(window)) * 6;
     if (width > window->width - 130) {
         width = window->width - 130;
     }
@@ -2000,7 +2101,7 @@ static void draw_window_frame(const Window *window, bool focused) {
     gfx_fill_round_rect_plain_alpha(title_x, control_y, title_w, control_size, chip_radius, RGB(230, 244, 255), focused ? 24 : 14);
     gfx_draw_round_rect_alpha(title_x, control_y, title_w, control_size, chip_radius, RGB(246, 252, 255), focused ? 64 : 38);
     gfx_fill_round_rect_alpha(title_x + 7, control_y + 6, 12, 12, 5, theme->accent, focused ? 156 : 92);
-    gfx_draw_text(title_x + 26, control_y + 7, window->title, focused ? theme->text : RGB(132, 142, 154), 1);
+    gfx_draw_text(title_x + 26, control_y + 7, window_safe_title(window), focused ? theme->text : RGB(132, 142, 154), 1);
 
     gfx_blur_round_rect(min_x, control_y, control_size, control_size, chip_radius);
     gfx_refract_round_rect_edges(min_x, control_y, control_size, control_size, chip_radius, 1);
@@ -2027,6 +2128,32 @@ static void draw_window_frame(const Window *window, bool focused) {
 
 static void draw_button(i32 x, i32 y, i32 width, const char *label, bool active) {
     draw_glass_chip(x, y, width, 28, label, active);
+}
+
+static void draw_file_command_button(FileCommand command, i32 x, i32 y, i32 width) {
+    if (command == FILE_CMD_BACK) { draw_button(x, y, width, "<", false); return; }
+    if (command == FILE_CMD_FORWARD) { draw_button(x, y, width, ">", false); return; }
+    if (command == FILE_CMD_UP) { draw_button(x, y, width, "^", false); return; }
+    if (command == FILE_CMD_NEW_FOLDER) { draw_button(x, y, width, "New folder", false); return; }
+    if (command == FILE_CMD_COPY) { draw_button(x, y, width, "Copy", false); return; }
+    if (command == FILE_CMD_CUT) { draw_button(x, y, width, "Cut", false); return; }
+    if (command == FILE_CMD_PASTE) { draw_button(x, y, width, "Paste", false); return; }
+    if (command == FILE_CMD_RENAME) { draw_button(x, y, width, "Rename", false); return; }
+    if (command == FILE_CMD_DELETE) { draw_button(x, y, width, "Trash", false); return; }
+    if (command == FILE_CMD_REFRESH) { draw_button(x, y, width, "Refresh", false); return; }
+}
+
+static void draw_file_location_label(size_t index, i32 x, i32 y, Color color) {
+    if (index == 0) { gfx_draw_text(x, y, "Home", color, 1); return; }
+    if (index == 1) { gfx_draw_text(x, y, "Desktop", color, 1); return; }
+    if (index == 2) { gfx_draw_text(x, y, "Documents", color, 1); return; }
+    if (index == 3) { gfx_draw_text(x, y, "Downloads", color, 1); return; }
+    if (index == 4) { gfx_draw_text(x, y, "Pictures", color, 1); return; }
+    if (index == 5) { gfx_draw_text(x, y, "Music", color, 1); return; }
+    if (index == 6) { gfx_draw_text(x, y, "Videos", color, 1); return; }
+    if (index == 7) { gfx_draw_text(x, y, "Applications", color, 1); return; }
+    if (index == 8) { gfx_draw_text(x, y, "System", color, 1); return; }
+    if (index == 9) { gfx_draw_text(x, y, "Trash", color, 1); return; }
 }
 
 static void draw_text_trimmed(i32 x, i32 y, const char *text, size_t max_chars, Color color) {
@@ -2083,10 +2210,6 @@ static void draw_file_icon(i32 x, i32 y, bool folder, bool selected) {
 
 static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
     const DesktopTheme *theme = &themes[current_theme];
-    static const char *command_labels[FILE_CMD_COUNT] = {
-        "<", ">", "^", "New folder", "Copy", "Cut", "Paste", "Rename", "Trash", "Refresh"
-    };
-    static const i32 button_w[FILE_CMD_COUNT] = { 30, 30, 30, 82, 48, 42, 56, 68, 62, 62 };
 
     files_ensure_entries();
     draw_glass_panel(x, y, width, height, 16);
@@ -2103,11 +2226,13 @@ static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
     gfx_fill_round_rect_alpha(x + 8, y + 8, width - 16, 42, 14, RGB(255, 255, 255), 52);
     i32 bx = main_x;
     for (i32 i = 0; i < FILE_CMD_COUNT; i++) {
-        if (bx + button_w[i] > search_x - 14) {
+        FileCommand command = (FileCommand)i;
+        i32 button_w = file_command_width(command);
+        if (bx + button_w > search_x - 14) {
             break;
         }
-        draw_button(bx, toolbar_y, button_w[i], command_labels[i], false);
-        bx += button_w[i] + 7;
+        draw_file_command_button(command, bx, toolbar_y, button_w);
+        bx += button_w + 7;
     }
 
     gfx_liquid_glass_rect(search_x, toolbar_y, search_w, 28, 14);
@@ -2117,11 +2242,11 @@ static void draw_file_explorer(i32 x, i32 y, i32 width, i32 height) {
     draw_glass_panel(x + 10, y + 58, sidebar_w - 18, height - 70, 18);
     gfx_draw_text(x + 24, y + 72, "Locations", theme->text, 1);
     i32 loc_y = y + 96;
-    for (size_t i = 0; i < sizeof(file_locations) / sizeof(file_locations[0]); i++) {
-        bool active = strcmp(files_current_path, file_locations[i].path) == 0;
+    for (size_t i = 0; i < file_location_count(); i++) {
+        bool active = file_location_matches(i, files_current_path);
         gfx_fill_round_rect_alpha(x + 18, loc_y, sidebar_w - 34, 25, 10,
                                   active ? theme->accent : RGB(255, 255, 255), active ? 82 : 28);
-        gfx_draw_text(x + 30, loc_y + 8, file_locations[i].label, active ? RGB(255, 255, 255) : RGB(48, 58, 68), 1);
+        draw_file_location_label(i, x + 30, loc_y + 8, active ? RGB(255, 255, 255) : RGB(48, 58, 68));
         loc_y += 30;
     }
 

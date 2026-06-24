@@ -1,5 +1,10 @@
 #include <liquidos/lib.h>
 
+static bool string_pointer_valid(const char *text) {
+    uintptr_t value = (uintptr_t)text;
+    return value >= 0x1000 && value < 0x40000000ULL;
+}
+
 void *memcpy(void *dest, const void *src, size_t count) {
     u8 *d = (u8 *)dest;
     const u8 *s = (const u8 *)src;
@@ -80,6 +85,9 @@ size_t strlen(const char *text) {
 }
 
 int strcmp(const char *left, const char *right) {
+    if (!string_pointer_valid(left) || !string_pointer_valid(right)) {
+        return left == right ? 0 : (left < right ? -1 : 1);
+    }
     while (*left && (*left == *right)) {
         left++;
         right++;

@@ -818,6 +818,11 @@ static i32 ui_font_percent_advance(u32 index, u32 percent) {
     return scaled > 1 ? scaled : 1;
 }
 
+static bool text_pointer_valid(const char *text) {
+    uintptr_t value = (uintptr_t)text;
+    return value >= 0x1000 && value < 0x40000000ULL;
+}
+
 static u8 ui_font_native_alpha(u32 index, u32 x, u32 y) {
     if (x >= UI_FONT_WIDTH || y >= UI_FONT_HEIGHT) {
         return 0;
@@ -876,6 +881,10 @@ void gfx_draw_char(i32 x, i32 y, char ch, Color color, u32 scale) {
 }
 
 void gfx_draw_text(i32 x, i32 y, const char *text, Color color, u32 scale) {
+    if (!text_pointer_valid(text)) {
+        return;
+    }
+
     i32 cursor_x = x;
     i32 cursor_y = y;
     i32 line_height = ui_font_output_height(scale) + (scale <= 1 ? 3 : 5);
@@ -894,6 +903,10 @@ void gfx_draw_text(i32 x, i32 y, const char *text, Color color, u32 scale) {
 }
 
 void gfx_draw_text_percent(i32 x, i32 y, const char *text, Color color, u32 percent) {
+    if (!text_pointer_valid(text)) {
+        return;
+    }
+
     if (percent < 35) {
         percent = 35;
     }

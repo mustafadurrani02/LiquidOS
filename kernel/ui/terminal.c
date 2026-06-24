@@ -1,6 +1,7 @@
 #include <liquidos/app_store.h>
 #include <liquidos/fs.h>
 #include <liquidos/gfx.h>
+#include <liquidos/input.h>
 #include <liquidos/loader.h>
 #include <liquidos/lib.h>
 #include <liquidos/network.h>
@@ -11,6 +12,7 @@
 #include <liquidos/scheduler.h>
 #include <liquidos/syscall.h>
 #include <liquidos/terminal.h>
+#include <liquidos/ui.h>
 
 #define TERMINAL_MAX_LINES 48
 #define TERMINAL_LINE_LENGTH 96
@@ -81,6 +83,14 @@ static void terminal_write_process(const Process *process) {
     append_text(line, sizeof(line), process->name);
     append_text(line, sizeof(line), " ticks=");
     append_text(line, sizeof(line), ticks);
+    append_text(line, sizeof(line), " sys=");
+    u64_to_dec(process->syscalls, ticks, sizeof(ticks));
+    append_text(line, sizeof(line), ticks);
+    if (process->denied_syscalls) {
+        append_text(line, sizeof(line), " denied=");
+        u64_to_dec(process->denied_syscalls, ticks, sizeof(ticks));
+        append_text(line, sizeof(line), ticks);
+    }
     terminal_write_line(line);
     if (process->state == PROCESS_CRASHED) {
         char value[24];
@@ -149,7 +159,7 @@ static void execute_command(const char *command) {
     terminal_write_line(prompt_line);
 
     if (strcmp(command, "help") == 0) {
-        terminal_write_line("Commands: help, clear, about, mem, ps, platform, drivers, services, security");
+        terminal_write_line("Commands: help, clear, about, mem, perf, ps, platform, drivers, services, security, privacy");
         terminal_write_line("Network: net, ping HOST, fetch URL PATH.");
         terminal_write_line("Apps: spawn, runhello, runapps, runcrash, syscall, apps, download NAME, runapp NAME, uninstall NAME.");
         terminal_write_line("Files: ls, cat, touch, write, rm. Store: apps, download NAME, runapp NAME, uninstall NAME.");
@@ -169,6 +179,34 @@ static void execute_command(const char *command) {
         line[0] = 0;
         append_text(line, sizeof(line), "Free page frames: ");
         append_text(line, sizeof(line), pages);
+        terminal_write_line(line);
+    } else if (strcmp(command, "perf") == 0) {
+        UiPerformanceStats stats = ui_performance_stats();
+        char number[24];
+        char line[TERMINAL_LINE_LENGTH];
+        u64_to_dec(stats.render_calls, number, sizeof(number));
+        line[0] = 0;
+        append_text(line, sizeof(line), "Render calls: ");
+        append_text(line, sizeof(line), number);
+        append_text(line, sizeof(line), " frames=");
+        u64_to_dec(stats.presented_frames, number, sizeof(number));
+        append_text(line, sizeof(line), number);
+        append_text(line, sizeof(line), " cursor=");
+        u64_to_dec(stats.cursor_presents, number, sizeof(number));
+        append_text(line, sizeof(line), number);
+        terminal_write_line(line);
+        line[0] = 0;
+        append_text(line, sizeof(line), "Input: coalesced=");
+        u64_to_dec(input_queue_coalesced_count(), number, sizeof(number));
+        append_text(line, sizeof(line), number);
+        append_text(line, sizeof(line), " dropped=");
+        u64_to_dec(input_queue_dropped_count(), number, sizeof(number));
+        append_text(line, sizeof(line), number);
+        terminal_write_line(line);
+        line[0] = 0;
+        append_text(line, sizeof(line), "Dirty pixels presented: ");
+        u64_to_dec(stats.dirty_pixels, number, sizeof(number));
+        append_text(line, sizeof(line), number);
         terminal_write_line(line);
     } else if (strcmp(command, "ps") == 0) {
         for (size_t i = 0; i < process_count(); i++) {
@@ -209,6 +247,11 @@ static void execute_command(const char *command) {
     } else if (strcmp(command, "security") == 0) {
         terminal_write_platform_area("isolation");
         terminal_write_platform_area("security");
+    } else if (strcmp(command, "privacy") == 0) {
+        terminal_write_line("Privacy mode: user apps cannot read SYSTEM, STORE, or NET.");
+        terminal_write_line("Writes are limited to Home, Desktop, Documents, Downloads, media folders.");
+        terminal_write_line("Syscall masks are enforced per package and denied calls are counted.");
+        terminal_write_line("App file handles close automatically on exit, crash, or force close.");
     } else if (strcmp(command, "net") == 0) {
         const NetInfo *info = network_info();
         char line[TERMINAL_LINE_LENGTH];
@@ -371,8 +414,8 @@ void terminal_init(void) {
     line_count = 0;
     input_length = 0;
     input[0] = 0;
-    terminal_write_line("LiquidOS Terminal");
-    terminal_write_line("Type help, ls, cat README.TXT, or write DESKTOP/HELLO.TXT hello.");
+    terminal_write_line("LiquidOS Terminal ready.");
+    terminal_write_line("Type help, perf, privacy, ls, or cat README.TXT.");
 }
 
 void terminal_on_char(char ch) {
@@ -401,14 +444,26 @@ void terminal_on_char(char ch) {
 }
 
 void terminal_render(i32 x, i32 y, i32 width, i32 height, bool focused) {
-    Color bg = RGB(9, 13, 18);
-    Color text = focused ? RGB(188, 242, 215) : RGB(164, 187, 195);
-    Color muted = RGB(101, 122, 130);
+    Color text = focused ? RGB(218, 248, 236) : RGB(172, 191, 199);
+    Color muted = RGB(116, 134, 144);
+    Color prompt = focused ? RGB(145, 244, 196) : RGB(118, 188, 166);
+    Color command = RGB(255, 217, 136);
 
-    gfx_fill_rect(x, y, width, height, bg);
+    gfx_fill_round_rect_plain_alpha(x, y, width, height, 18, RGB(5, 8, 14), 246);
+    gfx_fill_round_rect_plain_alpha(x + 8, y + 8, width - 16, height - 16, 16, RGB(15, 20, 31), 196);
+    gfx_liquid_glass_rect(x + 10, y + 10, width - 20, 38, 14);
+    gfx_fill_round_rect_alpha(x + 10, y + 10, width - 20, 38, 14, RGB(35, 46, 62), focused ? 104 : 72);
+    gfx_fill_round_rect_alpha(x + 22, y + 20, 10, 10, 5, RGB(255, 94, 88), 235);
+    gfx_fill_round_rect_alpha(x + 38, y + 20, 10, 10, 5, RGB(255, 194, 66), 235);
+    gfx_fill_round_rect_alpha(x + 54, y + 20, 10, 10, 5, RGB(45, 214, 104), 235);
+    gfx_draw_text(x + 76, y + 21, "Terminal", RGB(238, 244, 248), 1);
+    gfx_fill_round_rect_alpha(x + width - 138, y + 17, 112, 24, 10, focused ? RGB(70, 105, 92) : RGB(42, 50, 60), 116);
+    gfx_draw_text(x + width - 122, y + 25, focused ? "SECURE SHELL" : "BACKGROUND", focused ? RGB(190, 246, 218) : RGB(150, 162, 172), 1);
 
     i32 row_height = 20;
-    i32 rows_available = (height - 34) / row_height;
+    i32 output_top = y + 62;
+    i32 prompt_h = 42;
+    i32 rows_available = (height - 82 - prompt_h) / row_height;
     if (rows_available < 1) {
         rows_available = 1;
     }
@@ -418,13 +473,28 @@ void terminal_render(i32 x, i32 y, i32 width, i32 height, bool focused) {
         start = line_count - (size_t)rows_available;
     }
 
-    i32 draw_y = y + 8;
+    i32 draw_y = output_top;
     for (size_t i = start; i < line_count; i++) {
-        gfx_draw_text(x + 8, draw_y, lines[i], text, 1);
+        Color line_color = text;
+        if (lines[i][0] == '>') {
+            line_color = command;
+        } else if (starts_with(lines[i], "Privacy") || starts_with(lines[i], "Syscall") || starts_with(lines[i], "Render") || starts_with(lines[i], "Input")) {
+            line_color = RGB(168, 218, 255);
+        } else if (starts_with(lines[i], "Unknown") || starts_with(lines[i], "Could not") || starts_with(lines[i], "App install failed")) {
+            line_color = RGB(255, 156, 156);
+        }
+        gfx_draw_text(x + 24, draw_y, lines[i], line_color, 1);
         draw_y += row_height;
     }
 
-    gfx_fill_rect(x + 6, y + height - 28, width - 12, 1, RGB(34, 48, 55));
-    gfx_draw_text(x + 8, y + height - 22, ">", muted, 1);
-    gfx_draw_text(x + 24, y + height - 22, input, RGB(238, 245, 236), 1);
+    i32 prompt_y = y + height - prompt_h - 12;
+    gfx_liquid_glass_rect(x + 14, prompt_y, width - 28, prompt_h, 16);
+    gfx_fill_round_rect_alpha(x + 14, prompt_y, width - 28, prompt_h, 16, RGB(255, 255, 255), focused ? 34 : 22);
+    gfx_draw_text(x + 28, prompt_y + 15, "liquidos", prompt, 1);
+    gfx_draw_text(x + 78, prompt_y + 15, ">", muted, 1);
+    gfx_draw_text(x + 96, prompt_y + 15, input, RGB(244, 248, 246), 1);
+    if (focused && ((scheduler_ticks() / 45) % 2) == 0) {
+        i32 cursor_x = x + 100 + (i32)strlen(input) * 7;
+        gfx_fill_round_rect_alpha(cursor_x, prompt_y + 12, 2, 16, 1, RGB(180, 248, 216), 210);
+    }
 }

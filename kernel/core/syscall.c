@@ -25,6 +25,62 @@ typedef struct UserWindow {
 static UserWindow user_windows[USER_WINDOW_MAX];
 static u32 next_window_id = 1;
 
+static bool user_range_valid(const Process *process, u64 address, size_t size) {
+    if (!process || process->mode == PROCESS_KERNEL) {
+        return address != 0;
+    }
+    if (address < process->user_base) {
+        return false;
+    }
+    if (size == 0) {
+        return true;
+    }
+    u64 end = address + (u64)size;
+    if (end < address) {
+        return false;
+    }
+    if (address >= process->user_base && end <= process->user_base + process->user_limit) {
+        return true;
+    }
+    return process->user_stack_limit != 0 &&
+           address >= process->user_stack_base &&
+           end <= process->user_stack_base + process->user_stack_limit;
+}
+
+static bool copy_syscall_string(Process *process, u64 address, char *out, size_t out_size) {
+    if (!out || out_size == 0 || address == 0) {
+        return false;
+    }
+
+    if (!process || process->mode == PROCESS_KERNEL) {
+        strncpy(out, (const char *)(uintptr_t)address, out_size - 1);
+        out[out_size - 1] = 0;
+        return true;
+    }
+
+    for (size_t i = 0; i + 1 < out_size; i++) {
+        if (!user_range_valid(process, address + i, 1)) {
+            out[0] = 0;
+            return false;
+        }
+        char ch = *(const char *)(uintptr_t)(address + i);
+        out[i] = ch;
+        if (ch == 0) {
+            return true;
+        }
+    }
+
+    out[out_size - 1] = 0;
+    return false;
+}
+
+static u64 deny_syscall(Process *process) {
+    if (process) {
+        process->denied_syscalls++;
+    }
+    return (u64)-1;
+}
+
 void syscall_init(void) {
     memset(user_windows, 0, sizeof(user_windows));
     next_window_id = 1;
@@ -78,18 +134,32 @@ u64 syscall_dispatch(InterruptFrame *frame) {
     }
 
     Process *current = process_current();
+    if (current) {
+        current->syscalls++;
+        current->last_syscall = (u32)frame->rax;
+    }
     if (current && current->mode == PROCESS_USER) {
         if (frame->rax >= SYS_COUNT || ((current->syscall_mask & (1ULL << frame->rax)) == 0)) {
-            return (u64)-1;
+            return deny_syscall(current);
         }
     }
 
     switch (frame->rax) {
-    case SYS_WRITE:
+    case SYS_WRITE: {
         if (frame->rbx) {
-            serial_write((const char *)(uintptr_t)frame->rbx);
+            char text[256];
+            if (current && current->mode == PROCESS_USER) {
+                if (!copy_syscall_string(current, frame->rbx, text, sizeof(text))) {
+                    return deny_syscall(current);
+                }
+                serial_write(text);
+                current->bytes_written += strlen(text);
+            } else {
+                serial_write((const char *)(uintptr_t)frame->rbx);
+            }
         }
         return 0;
+    }
     case SYS_EXIT:
         if (!process_exit_current((i32)frame->rbx)) {
             return 1;
@@ -109,18 +179,29 @@ u64 syscall_dispatch(InterruptFrame *frame) {
         return scheduler_current_pid();
     case SYS_TICKS:
         return scheduler_ticks();
-    case SYS_OPEN:
-        return frame->rbx ? (u64)process_open_current((const char *)(uintptr_t)frame->rbx) : (u64)-1;
+    case SYS_OPEN: {
+        char path[FS_NAME_LENGTH];
+        if (!copy_syscall_string(current, frame->rbx, path, sizeof(path))) {
+            return deny_syscall(current);
+        }
+        return (u64)process_open_current(path);
+    }
     case SYS_READ: {
         if (!frame->rcx || frame->rdx == 0) {
-            return (u64)-1;
+            return deny_syscall(current);
+        }
+        if (current && current->mode == PROCESS_USER && !user_range_valid(current, frame->rcx, (size_t)frame->rdx)) {
+            return deny_syscall(current);
         }
         if (frame->rbx >= PROCESS_FIRST_FD && frame->rbx < PROCESS_FIRST_FD + PROCESS_MAX_FILES) {
             return (u64)process_read_current((i32)frame->rbx, (void *)(uintptr_t)frame->rcx, (size_t)frame->rdx);
         }
+        if (current && current->mode == PROCESS_USER) {
+            return deny_syscall(current);
+        }
         const FsFile *file = frame->rbx ? fs_find((const char *)(uintptr_t)frame->rbx) : NULL;
         if (!file) {
-            return (u64)-1;
+            return deny_syscall(current);
         }
         size_t copy = file->size < frame->rdx ? file->size : (size_t)frame->rdx;
         memcpy((void *)(uintptr_t)frame->rcx, file->contents, copy);
@@ -128,13 +209,21 @@ u64 syscall_dispatch(InterruptFrame *frame) {
     }
     case SYS_FILE_WRITE:
         if (frame->rbx >= PROCESS_FIRST_FD && frame->rbx < PROCESS_FIRST_FD + PROCESS_MAX_FILES) {
-            return frame->rcx ? (u64)process_write_current((i32)frame->rbx, (const char *)(uintptr_t)frame->rcx) : (u64)-1;
+            char contents[FS_CONTENT_LENGTH];
+            if (!copy_syscall_string(current, frame->rcx, contents, sizeof(contents))) {
+                return deny_syscall(current);
+            }
+            return (u64)process_write_current((i32)frame->rbx, contents);
+        }
+        if (current && current->mode == PROCESS_USER) {
+            return deny_syscall(current);
         }
         return frame->rbx && frame->rcx && fs_write((const char *)(uintptr_t)frame->rbx, (const char *)(uintptr_t)frame->rcx) ? 0 : 1;
     case SYS_CLOSE:
         return process_close_current((i32)frame->rbx) ? 0 : 1;
     case SYS_SPAWN_STUB:
         return process_spawn_user_stub("user-stub", vmm_kernel_space(), 0, 0, 0x400000, 0x10000,
+                                       0x500000, 0x10000,
                                        (1ULL << SYS_WRITE) | (1ULL << SYS_EXIT) | (1ULL << SYS_YIELD) |
                                        (1ULL << SYS_GETPID) | (1ULL << SYS_TICKS));
     case SYS_INSTALL_APP:
@@ -143,7 +232,13 @@ u64 syscall_dispatch(InterruptFrame *frame) {
         serial_write_line("sys_hello");
         return 0x514C49515549444FULL;
     case SYS_WINDOW_CREATE:
-        return sys_window_create((const char *)(uintptr_t)frame->rbx, (i32)frame->rcx, (i32)frame->rdx);
+    {
+        char title[32];
+        if (frame->rbx && !copy_syscall_string(current, frame->rbx, title, sizeof(title))) {
+            return deny_syscall(current);
+        }
+        return sys_window_create(frame->rbx ? title : "User App", (i32)frame->rcx, (i32)frame->rdx);
+    }
     case SYS_DRAW_TEXT:
     case SYS_DRAW_RECT:
         return find_user_window((u32)frame->rbx, scheduler_current_pid()) ? 0 : 1;

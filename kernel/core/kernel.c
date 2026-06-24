@@ -122,9 +122,6 @@ void kernel_main(const BootInfo *boot) {
                 ui_update(pit_ticks());
             } else {
                 ui_handle_event(&event);
-                if (event.type == INPUT_EVENT_MOUSE) {
-                    ui_render();
-                }
             }
         }
 

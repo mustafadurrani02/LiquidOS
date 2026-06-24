@@ -37,6 +37,16 @@ static void append_dec(char *dest, size_t dest_size, u64 value) {
     append_text(dest, dest_size, number);
 }
 
+static void app_store_audit_path(size_t index, char *out, size_t out_size) {
+    out[0] = 0;
+    if (index >= sizeof(catalog) / sizeof(catalog[0])) {
+        return;
+    }
+    append_text(out, out_size, "STORE/AUDIT/");
+    append_text(out, out_size, catalog[index].name);
+    append_text(out, out_size, ".TXT");
+}
+
 static void build_package_descriptor(const StoreApp *app, char *out, size_t out_size) {
     out[0] = 0;
     append_text(out, out_size, "LPKG1\n");
@@ -54,6 +64,8 @@ static void build_package_descriptor(const StoreApp *app, char *out, size_t out_
     append_text(out, out_size, app->category);
     append_text(out, out_size, "\npermissions=");
     append_dec(out, out_size, app->syscall_mask);
+    append_text(out, out_size, "\nsandbox=user-folders");
+    append_text(out, out_size, "\nprivacy=no-system-store-net-read");
     append_text(out, out_size, "\nfiles=1\n");
 }
 
@@ -127,8 +139,15 @@ StoreInstallCheck app_store_validate_by_index(size_t index) {
     if (!package_has_field(package->contents, "name=", app->name) ||
         !package_has_field(package->contents, "version=", app->version) ||
         !package_has_field(package->contents, "entry=", app->entry_path) ||
-        !package_has_field(package->contents, "payload=", app->source_path)) {
+        !package_has_field(package->contents, "payload=", app->source_path) ||
+        !package_has_field(package->contents, "sandbox=", "user-folders") ||
+        !package_has_field(package->contents, "privacy=", "no-system-store-net-read")) {
         return make_check(false, 0, "package metadata mismatch");
+    }
+    char permissions[24];
+    u64_to_dec(app->syscall_mask, permissions, sizeof(permissions));
+    if (!package_has_field(package->contents, "permissions=", permissions)) {
+        return make_check(false, 0, "package permissions mismatch");
     }
 
     const FsFile *source = fs_find(app->source_path);
@@ -151,6 +170,11 @@ StoreInstallCheck app_store_validate_by_index(size_t index) {
         required_slots++;
     }
     if (!fs_find(app_store_manifest_path(index))) {
+        required_slots++;
+    }
+    char audit_path[FS_NAME_LENGTH];
+    app_store_audit_path(index, audit_path, sizeof(audit_path));
+    if (!fs_find(audit_path)) {
         required_slots++;
     }
     if (fs_free_slots() < required_slots) {
@@ -201,10 +225,26 @@ bool app_store_install_by_index(size_t index) {
     append_text(manifest, sizeof(manifest), app->description);
     append_text(manifest, sizeof(manifest), "\npermissions=");
     append_dec(manifest, sizeof(manifest), app->syscall_mask);
+    append_text(manifest, sizeof(manifest), "\nsandbox=user-folders");
+    append_text(manifest, sizeof(manifest), "\nprivacy=no-system-store-net-read");
     append_text(manifest, sizeof(manifest), "\n");
 
+    char audit_path[FS_NAME_LENGTH];
+    app_store_audit_path(index, audit_path, sizeof(audit_path));
+
+    char audit[FS_CONTENT_LENGTH];
+    audit[0] = 0;
+    append_text(audit, sizeof(audit), "installed=");
+    append_text(audit, sizeof(audit), app->display_name);
+    append_text(audit, sizeof(audit), "\nsource=");
+    append_text(audit, sizeof(audit), app->package_path);
+    append_text(audit, sizeof(audit), "\nsandbox=user-folders\npermissions=");
+    append_dec(audit, sizeof(audit), app->syscall_mask);
+    append_text(audit, sizeof(audit), "\n");
+
     return fs_write(app_store_receipt_path(index), app->installed_path) &&
-           fs_write(app_store_manifest_path(index), manifest);
+           fs_write(app_store_manifest_path(index), manifest) &&
+           fs_write(audit_path, audit);
 }
 
 bool app_store_install(const char *name) {
@@ -231,6 +271,11 @@ bool app_store_uninstall_by_index(size_t index) {
     }
     if (fs_find(app_store_manifest_path(index))) {
         removed = fs_delete(app_store_manifest_path(index)) || removed;
+    }
+    char audit_path[FS_NAME_LENGTH];
+    app_store_audit_path(index, audit_path, sizeof(audit_path));
+    if (fs_find(audit_path)) {
+        removed = fs_delete(audit_path) || removed;
     }
     return removed;
 }

@@ -174,6 +174,7 @@ static i32 dirty_y1 = 0;
 static i32 previous_mouse_x = 320;
 static i32 previous_mouse_y = 240;
 static i32 hover_zone = -1;
+static UiPerformanceStats ui_stats;
 static FileExplorerEntry files_entries[40];
 static char files_current_path[FS_NAME_LENGTH] = "HOME";
 static char files_back_stack[8][FS_NAME_LENGTH];
@@ -493,7 +494,8 @@ static void bring_to_front(WindowKind kind) {
 
     if (z_order[top] == kind) {
         if (old_focus != kind) {
-            mark_dirty_full();
+            mark_dirty_window(old_focus);
+            mark_dirty_window(kind);
         }
         return;
     }
@@ -513,7 +515,8 @@ static void bring_to_front(WindowKind kind) {
         z_order[i] = z_order[i + 1];
     }
     z_order[top] = kind;
-    mark_dirty_full();
+    mark_dirty_window(old_focus);
+    mark_dirty_window(kind);
 }
 
 static void open_window(WindowKind kind) {
@@ -2543,6 +2546,20 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     append_text(storage, sizeof(storage), " partial");
     gfx_draw_text(x + 20, y + 356, storage, RGB(82, 94, 104), 1);
 
+    UiPerformanceStats perf = ui_performance_stats();
+    char perf_line[96];
+    perf_line[0] = 0;
+    append_text(perf_line, sizeof(perf_line), "Performance: ");
+    u64_to_dec(perf.presented_frames, number, sizeof(number));
+    append_text(perf_line, sizeof(perf_line), number);
+    append_text(perf_line, sizeof(perf_line), " frames / ");
+    u64_to_dec(input_queue_coalesced_count(), number, sizeof(number));
+    append_text(perf_line, sizeof(perf_line), number);
+    append_text(perf_line, sizeof(perf_line), " coalesced");
+    gfx_draw_text(x + 20, y + 376, perf_line, RGB(82, 94, 104), 1);
+
+    gfx_draw_text(x + 20, y + 396, "Privacy: user folders sandboxed, denied syscalls tracked", RGB(82, 94, 104), 1);
+
     gfx_draw_text(manager_x, y + 246, "Task Manager", theme->text, 1);
     draw_glass_panel(manager_x, y + 266, manager_w, 104, 16);
     size_t rows = process_count();
@@ -2897,8 +2914,9 @@ void ui_handle_event(const InputEvent *event) {
             next_scale = 135;
         }
         if (next_scale != dock_scale_percent) {
-            mark_dirty_full();
+            mark_dirty_taskbar();
             dock_scale_percent = next_scale;
+            mark_dirty_taskbar();
             cursor_redraw_needed = true;
         }
     }
@@ -2965,6 +2983,7 @@ void ui_update(u64 tick_count) {
 }
 
 void ui_render(void) {
+    ui_stats.render_calls++;
     if (full_redraw_needed) {
         if (!dirty_region_valid) {
             mark_dirty_full();
@@ -2988,6 +3007,9 @@ void ui_render(void) {
         gfx_clear_clip();
         gfx_present_rect(present_x, present_y, present_w, present_h);
         gfx_present_cursor(mouse_x, mouse_y, mouse_x, mouse_y);
+        ui_stats.presented_frames++;
+        ui_stats.full_redraws++;
+        ui_stats.dirty_pixels += (u64)(present_w > 0 ? present_w : 0) * (u64)(present_h > 0 ? present_h : 0);
         previous_mouse_x = mouse_x;
         previous_mouse_y = mouse_y;
         full_redraw_needed = false;
@@ -2998,8 +3020,13 @@ void ui_render(void) {
 
     if (cursor_redraw_needed) {
         gfx_present_cursor(previous_mouse_x, previous_mouse_y, mouse_x, mouse_y);
+        ui_stats.cursor_presents++;
         previous_mouse_x = mouse_x;
         previous_mouse_y = mouse_y;
         cursor_redraw_needed = false;
     }
+}
+
+UiPerformanceStats ui_performance_stats(void) {
+    return ui_stats;
 }

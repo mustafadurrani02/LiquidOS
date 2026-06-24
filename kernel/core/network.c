@@ -97,17 +97,17 @@ static const NetRoute routes[] = {
     {
         "http://store.liquidos.local/packages/notes.lpkg",
         "application/x-liquidos-package",
-        "LPKG1\nname=notes\ndisplay=Liquid Notes\nversion=1.0\nentry=APPS/NOTES.APP\npayload=APPS/HELLO.APP\ncategory=Productivity\npermissions=31\nfiles=1\n"
+        "LPKG1\nname=notes\ndisplay=Liquid Notes\nversion=1.0\nentry=APPS/NOTES.APP\npayload=APPS/HELLO.APP\ncategory=Productivity\npermissions=31\nsandbox=user-folders\nprivacy=no-system-store-net-read\nfiles=1\n"
     },
     {
         "http://store.liquidos.local/packages/paint.lpkg",
         "application/x-liquidos-package",
-        "LPKG1\nname=paint\ndisplay=Liquid Paint\nversion=1.0\nentry=APPS/PAINT.APP\npayload=APPS/APP_A.APP\ncategory=Creative\npermissions=31\nfiles=1\n"
+        "LPKG1\nname=paint\ndisplay=Liquid Paint\nversion=1.0\nentry=APPS/PAINT.APP\npayload=APPS/APP_A.APP\ncategory=Creative\npermissions=31\nsandbox=user-folders\nprivacy=no-system-store-net-read\nfiles=1\n"
     },
     {
         "http://store.liquidos.local/packages/calc.lpkg",
         "application/x-liquidos-package",
-        "LPKG1\nname=calc\ndisplay=Liquid Calc\nversion=1.0\nentry=APPS/CALC.APP\npayload=APPS/APP_B.APP\ncategory=Utility\npermissions=31\nfiles=1\n"
+        "LPKG1\nname=calc\ndisplay=Liquid Calc\nversion=1.0\nentry=APPS/CALC.APP\npayload=APPS/APP_B.APP\ncategory=Utility\npermissions=31\nsandbox=user-folders\nprivacy=no-system-store-net-read\nfiles=1\n"
     },
 };
 

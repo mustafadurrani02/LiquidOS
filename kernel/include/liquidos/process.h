@@ -60,7 +60,16 @@ typedef struct Process {
     u64 ticks;
     u64 user_base;
     u64 user_limit;
+    u64 user_stack_base;
+    u64 user_stack_limit;
     u64 syscall_mask;
+    u64 syscalls;
+    u64 denied_syscalls;
+    u64 bytes_read;
+    u64 bytes_written;
+    u64 files_opened;
+    u64 peak_open_files;
+    u32 last_syscall;
     u64 crash_vector;
     u64 crash_error;
     u64 crash_rip;
@@ -75,7 +84,7 @@ typedef struct Process {
 
 void process_init(void);
 u32 process_spawn_kernel(const char *name);
-u32 process_spawn_user_stub(const char *name, AddressSpace address_space, u64 entry_rip, u64 user_rsp, u64 user_base, u64 user_limit, u64 syscall_mask);
+u32 process_spawn_user_stub(const char *name, AddressSpace address_space, u64 entry_rip, u64 user_rsp, u64 user_base, u64 user_limit, u64 user_stack_base, u64 user_stack_limit, u64 syscall_mask);
 bool process_exit_current(i32 code);
 bool process_yield_current(void);
 bool process_preempt_current(void);

@@ -9,6 +9,71 @@ static Process processes[MAX_PROCESSES];
 static u32 next_pid = 1;
 static u32 current_pid = 0;
 
+static bool path_is_or_under(const char *path, const char *root) {
+    if (!path || !root) {
+        return false;
+    }
+    size_t length = strlen(root);
+    return strncmp(path, root, length) == 0 && (path[length] == 0 || path[length] == '/');
+}
+
+static bool process_read_path_allowed(const Process *process, const char *path) {
+    if (!process || process->mode == PROCESS_KERNEL) {
+        return true;
+    }
+    if (!path || !path[0]) {
+        return false;
+    }
+    if (path_is_or_under(path, "SYSTEM") || path_is_or_under(path, "STORE") || path_is_or_under(path, "NET")) {
+        return false;
+    }
+    return path_is_or_under(path, "HOME") ||
+           path_is_or_under(path, "DESKTOP") ||
+           path_is_or_under(path, "DOCUMENTS") ||
+           path_is_or_under(path, "DOWNLOADS") ||
+           path_is_or_under(path, "PICTURES") ||
+           path_is_or_under(path, "MUSIC") ||
+           path_is_or_under(path, "VIDEOS") ||
+           path_is_or_under(path, "APPS") ||
+           path_is_or_under(path, "WEB");
+}
+
+static bool process_write_path_allowed(const Process *process, const char *path) {
+    if (!process || process->mode == PROCESS_KERNEL) {
+        return true;
+    }
+    if (!path || !path[0]) {
+        return false;
+    }
+    return path_is_or_under(path, "HOME") ||
+           path_is_or_under(path, "DESKTOP") ||
+           path_is_or_under(path, "DOCUMENTS") ||
+           path_is_or_under(path, "DOWNLOADS") ||
+           path_is_or_under(path, "PICTURES") ||
+           path_is_or_under(path, "MUSIC") ||
+           path_is_or_under(path, "VIDEOS");
+}
+
+static void process_close_all_files(Process *process) {
+    if (!process) {
+        return;
+    }
+    memset(process->files, 0, sizeof(process->files));
+}
+
+static size_t process_open_file_count(const Process *process) {
+    size_t count = 0;
+    if (!process) {
+        return 0;
+    }
+    for (size_t i = 0; i < PROCESS_MAX_FILES; i++) {
+        if (process->files[i].used) {
+            count++;
+        }
+    }
+    return count;
+}
+
 static Process *allocate_process(void) {
     for (size_t i = 0; i < MAX_PROCESSES; i++) {
         if (processes[i].state == PROCESS_UNUSED) {
@@ -46,7 +111,7 @@ u32 process_spawn_kernel(const char *name) {
     return process->pid;
 }
 
-u32 process_spawn_user_stub(const char *name, AddressSpace address_space, u64 entry_rip, u64 user_rsp, u64 user_base, u64 user_limit, u64 syscall_mask) {
+u32 process_spawn_user_stub(const char *name, AddressSpace address_space, u64 entry_rip, u64 user_rsp, u64 user_base, u64 user_limit, u64 user_stack_base, u64 user_stack_limit, u64 syscall_mask) {
     Process *process = allocate_process();
     if (!process) {
         return 0;
@@ -60,6 +125,8 @@ u32 process_spawn_user_stub(const char *name, AddressSpace address_space, u64 en
     process->user_rsp = user_rsp;
     process->user_base = user_base;
     process->user_limit = user_limit;
+    process->user_stack_base = user_stack_base;
+    process->user_stack_limit = user_stack_limit;
     process->syscall_mask = syscall_mask;
     return process->pid;
 }
@@ -71,6 +138,7 @@ bool process_exit_current(i32 code) {
     }
     process->state = PROCESS_STOPPED;
     process->exit_code = code;
+    process_close_all_files(process);
     process_set_current(1);
     return true;
 }
@@ -106,6 +174,7 @@ bool process_crash_current(u64 vector, u64 error_code, u64 rip, u64 fault_addres
     process->crash_error = error_code;
     process->crash_rip = rip;
     process->crash_address = fault_address;
+    process_close_all_files(process);
     process_set_current(1);
     return true;
 }
@@ -118,6 +187,7 @@ bool process_kill(u32 pid, i32 code) {
 
     process->state = PROCESS_STOPPED;
     process->exit_code = code;
+    process_close_all_files(process);
     if (process_current() == process) {
         process_set_current(1);
     }
@@ -126,7 +196,7 @@ bool process_kill(u32 pid, i32 code) {
 
 i32 process_open_current(const char *path) {
     Process *process = process_current();
-    if (!process || !path || !fs_find(path)) {
+    if (!process || !process_read_path_allowed(process, path) || !fs_find(path)) {
         return -1;
     }
 
@@ -136,6 +206,11 @@ i32 process_open_current(const char *path) {
             process->files[i].offset = 0;
             strncpy(process->files[i].path, path, sizeof(process->files[i].path) - 1);
             process->files[i].path[sizeof(process->files[i].path) - 1] = 0;
+            process->files_opened++;
+            size_t open = process_open_file_count(process);
+            if (open > process->peak_open_files) {
+                process->peak_open_files = open;
+            }
             return (i32)(PROCESS_FIRST_FD + i);
         }
     }
@@ -170,6 +245,7 @@ i64 process_read_current(i32 fd, void *buffer, size_t buffer_size) {
     }
     memcpy(buffer, file->contents + process->files[index].offset, copy);
     process->files[index].offset += copy;
+    process->bytes_read += copy;
     return (i64)copy;
 }
 
@@ -184,7 +260,16 @@ i64 process_write_current(i32 fd, const char *contents) {
         return -1;
     }
 
-    return fs_write(process->files[index].path, contents) ? (i64)strlen(contents) : -1;
+    if (!process_write_path_allowed(process, process->files[index].path)) {
+        return -1;
+    }
+
+    size_t length = strlen(contents);
+    if (!fs_write(process->files[index].path, contents)) {
+        return -1;
+    }
+    process->bytes_written += length;
+    return (i64)length;
 }
 
 bool process_close_current(i32 fd) {

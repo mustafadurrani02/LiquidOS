@@ -7,9 +7,9 @@
 #include <liquidos/syscall.h>
 #include <liquidos/vmm.h>
 
-#define FS_MAX_FILES 40
+#define FS_MAX_FILES 48
 #define FS_DISK_MAGIC 0x53464C51U
-#define FS_DISK_VERSION 1U
+#define FS_DISK_VERSION 2U
 #define FS_DISK_LBA 16U
 #define FS_DISK_SECTORS 48U
 
@@ -253,6 +253,9 @@ static void fs_load_defaults(void) {
     set_file_bytes(21, "APPS/APP_B.APP", app, size);
     size = build_crash_lapp(app);
     set_file_bytes(22, "APPS/CRASH.APP", app, size);
+    set_file(23, "STORE/AUDIT/.DIR", "Package install audit receipts are written here.");
+    set_file(24, "SYSTEM/SECURITY.TXT", "LiquidOS validates user syscall pointers, enforces syscall masks, and closes app file handles on exit or crash.");
+    set_file(25, "DOCUMENTS/PRIVACY.TXT", "User apps are sandboxed away from SYSTEM, STORE, and NET reads. Writes are limited to user folders.");
 }
 
 void fs_init(void) {

@@ -83,6 +83,15 @@ static PlatformCapability capabilities[] = {
     { "recovery", "installer/updater", PLATFORM_PLANNED, "not implemented" },
     { "recovery", "backups/restore", PLATFORM_PLANNED, "not implemented" },
     { "recovery", "accessibility", PLATFORM_PLANNED, "not implemented" },
+
+    { "performance", "input coalescing", PLATFORM_AVAILABLE, "mouse bursts merge before compositor work" },
+    { "performance", "batched UI redraws", PLATFORM_AVAILABLE, "input drains before a single desktop render" },
+    { "performance", "dirty window redraws", PLATFORM_PARTIAL, "focus and dock resize redraw affected regions" },
+
+    { "privacy", "user folder sandbox", PLATFORM_PARTIAL, "user apps cannot read SYSTEM, STORE, or NET" },
+    { "privacy", "install audit trail", PLATFORM_AVAILABLE, "Store writes package manifests and audit receipts" },
+    { "security", "syscall pointer checks", PLATFORM_AVAILABLE, "user syscalls validate buffers and copy strings" },
+    { "security", "file handle cleanup", PLATFORM_AVAILABLE, "open files close on app exit, crash, and force close" },
 };
 
 #define CAP_NETWORK_MANAGER 54

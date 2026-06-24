@@ -153,6 +153,10 @@ LoadResult loader_spawn_app(const char *path) {
     if (header->bss_size && !map_segment(&space, bss_base, NULL, header->bss_size, VMM_WRITE | VMM_USER)) {
         return make_result(false, 0, "bss mapping failed");
     }
+    u64 stack_size = align_up(header->stack_size, VMM_PAGE_SIZE);
+    if (stack_size < VMM_PAGE_SIZE) {
+        stack_size = VMM_PAGE_SIZE;
+    }
     if (!map_stack(&space, header->stack_size)) {
         return make_result(false, 0, "stack mapping failed");
     }
@@ -162,6 +166,8 @@ LoadResult loader_spawn_app(const char *path) {
                                       align_up(header->text_size, VMM_PAGE_SIZE) +
                                       align_up(header->data_size, VMM_PAGE_SIZE) +
                                       align_up(header->bss_size, VMM_PAGE_SIZE),
+                                      USER_STACK - stack_size,
+                                      stack_size,
                                       header->syscall_mask);
     if (!pid) {
         return make_result(false, 0, "process table full");

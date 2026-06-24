@@ -5,6 +5,7 @@
 #include <liquidos/io.h>
 #include <liquidos/lib.h>
 #include <liquidos/liqueia.h>
+#include <liquidos/network.h>
 #include <liquidos/platform.h>
 #include <liquidos/power.h>
 #include <liquidos/process.h>
@@ -225,6 +226,18 @@ static u32 new_file_counter = 1;
 static u32 new_folder_counter = 1;
 static size_t current_theme = 0;
 static size_t selected_store_app = 0;
+static i32 settings_page = 0;
+static bool settings_search_editing = false;
+static char settings_search[32] = "";
+static bool settings_bluetooth_enabled = false;
+static bool settings_sound_enabled = true;
+static bool settings_notifications_enabled = true;
+static bool settings_focus_enabled = false;
+static bool settings_night_light = false;
+static bool settings_large_text = false;
+static bool settings_reduce_motion = false;
+static bool settings_high_contrast = false;
+static bool settings_privacy_lock = false;
 static Notification notifications[8];
 static size_t notification_head = 0;
 static size_t notification_count = 0;
@@ -1693,61 +1706,188 @@ static void handle_store_click(const Window *window) {
     }
 }
 
+static const char *settings_page_label(i32 page) {
+    if (page == 0) return "System";
+    if (page == 1) return "Bluetooth & devices";
+    if (page == 2) return "Network & internet";
+    if (page == 3) return "Personalization";
+    if (page == 4) return "Apps";
+    if (page == 5) return "Accounts";
+    if (page == 6) return "Time & language";
+    if (page == 7) return "Accessibility";
+    if (page == 8) return "Updates";
+    return "About";
+}
+
+static const char *settings_page_subtitle(i32 page) {
+    if (page == 0) return "Manage your device and preferences";
+    if (page == 1) return "Pair devices and tune input";
+    if (page == 2) return "Network status, web bridge, and downloads";
+    if (page == 3) return "Wallpaper, dock, theme, and cursor";
+    if (page == 4) return "Installed apps, Store, and app permissions";
+    if (page == 5) return "User profile, login, and sessions";
+    if (page == 6) return "Clock, region, and keyboard layout";
+    if (page == 7) return "Text, motion, contrast, and input access";
+    if (page == 8) return "System updates, recovery, and backups";
+    return "LiquidOS device information";
+}
+
+static const char *settings_row_title(i32 page, i32 row) {
+    static const char *rows[10][5] = {
+        { "Display", "Sound", "Notifications", "Focus", "Power & battery" },
+        { "Bluetooth", "Keyboard", "Mouse", "Touchpad", "Connected devices" },
+        { "Wi-Fi", "Ethernet", "Browser networking", "Downloads", "WebBridge" },
+        { "Theme", "Wallpaper", "Dock", "Window style", "Cursor" },
+        { "Installed apps", "App Store", "Default apps", "Startup apps", "App permissions" },
+        { "User profile", "Sign-in options", "Lock screen", "Sessions", "Family safety" },
+        { "Date & time", "Region", "Keyboard layout", "Clock", "Calendar" },
+        { "Text size", "Reduce motion", "Contrast", "Pointer", "Keyboard access" },
+        { "Check for updates", "Update history", "Recovery", "Backup", "Developer channel" },
+        { "Device info", "Storage", "Performance", "Security", "Privacy" },
+    };
+    return rows[page < 0 || page > 9 ? 0 : page][row < 0 || row > 4 ? 0 : row];
+}
+
+static const char *settings_row_subtitle(i32 page, i32 row) {
+    if (page == 0 && row == 0) return settings_night_light ? "Night light enabled, Liquid Glass adaptive" : "Brightness, contrast, night light, display profile";
+    if (page == 0 && row == 1) return settings_sound_enabled ? "System sounds enabled" : "System sounds muted";
+    if (page == 0 && row == 2) return settings_notifications_enabled ? "Alerts from apps and system are enabled" : "Notifications are paused";
+    if (page == 0 && row == 3) return settings_focus_enabled ? "Focus mode is on" : "Reduce distractions and stay in the zone";
+    if (page == 0 && row == 4) return battery_saver ? "Battery saver enabled" : "Sleep, battery usage, battery saver";
+    if (page == 1 && row == 0) return settings_bluetooth_enabled ? "Bluetooth discovery is on" : "Bluetooth discovery is off";
+    if (page == 1 && row == 1) return "PS/2 keyboard active, shortcuts enabled";
+    if (page == 1 && row == 2) return "Pointer acceleration and click controls";
+    if (page == 1 && row == 3) return "Touchpad gestures planned";
+    if (page == 1 && row == 4) return "No external devices paired";
+    if (page == 2 && row == 0) return wifi_enabled ? "Wi-Fi toggle is on" : "Wi-Fi toggle is off";
+    if (page == 2 && row == 1) return network_info()->link_up ? "RTL8139 network link active" : "No network link detected";
+    if (page == 2 && row == 2) return "Google search and HTTP route through LiquidOS networking";
+    if (page == 2 && row == 3) return "Store package downloads use LiquidFS";
+    if (page == 2 && row == 4) return "Host bridge available at 10.0.2.2 when run script starts it";
+    if (page == 3 && row == 0) return themes[current_theme].name;
+    if (page == 3 && row == 1) return "Current purple abstract LiquidOS wallpaper";
+    if (page == 3 && row == 2) return "Top dock size and Liquid Glass material";
+    if (page == 3 && row == 3) return "Rounded glass frames and title controls";
+    if (page == 3 && row == 4) return "Custom white pointer active";
+    if (page == 4 && row == 0) return "Open Launch Apps";
+    if (page == 4 && row == 1) return "Open the app installer";
+    if (page == 4 && row == 2) return "Liqueia is the default browser";
+    if (page == 4 && row == 3) return "Startup apps are disabled for faster boot";
+    if (page == 4 && row == 4) return "Installed apps run with basic sandbox policy";
+    if (page == 5 && row == 0) return "Local user session";
+    if (page == 5 && row == 1) return "Password login is planned";
+    if (page == 5 && row == 2) return settings_privacy_lock ? "Lock screen privacy enabled" : "Lock screen privacy disabled";
+    if (page == 5 && row == 3) return "Single desktop session active";
+    if (page == 5 && row == 4) return "Family controls are planned";
+    if (page == 6 && row == 0) return "Synced from VM clock using UK timezone";
+    if (page == 6 && row == 1) return "United Kingdom";
+    if (page == 6 && row == 2) return "UK keyboard layout";
+    if (page == 6 && row == 3) return "24-hour clock shown in dock";
+    if (page == 6 && row == 4) return "Calendar services planned";
+    if (page == 7 && row == 0) return settings_large_text ? "Large text enabled" : "Default text size";
+    if (page == 7 && row == 1) return settings_reduce_motion ? "Motion reduced" : "Smooth dock and window movement";
+    if (page == 7 && row == 2) return settings_high_contrast ? "High contrast enabled" : "Liquid Glass contrast";
+    if (page == 7 && row == 3) return "Cursor shape and size";
+    if (page == 7 && row == 4) return "Keyboard navigation and shortcuts";
+    if (page == 8 && row == 0) return "LiquidOS is up to date";
+    if (page == 8 && row == 1) return "Last local build installed";
+    if (page == 8 && row == 2) return "Safe mode and recovery planned";
+    if (page == 8 && row == 3) return "Backups planned for persistent disks";
+    if (page == 8 && row == 4) return "Developer preview channel";
+    if (page == 9 && row == 0) return "Aurora, LiquidOS Developer Preview";
+    if (page == 9 && row == 1) return fs_persistence_available() ? "LiquidFS disk-backed" : "LiquidFS RAM only";
+    if (page == 9 && row == 2) return "Dirty-region rendering and coalesced input";
+    if (page == 9 && row == 3) return "User/kernel boundary and syscall policy improving";
+    return "Privacy controls and sandboxing roadmap";
+}
+
+static void settings_cycle_theme(void) {
+    current_theme = (current_theme + 1) % (sizeof(themes) / sizeof(themes[0]));
+    char theme_id[2];
+    theme_id[0] = (char)('0' + current_theme);
+    theme_id[1] = 0;
+    fs_write("SYSTEM/THEME.TXT", theme_id);
+    set_taskbar_message(themes[current_theme].name);
+    push_notification("Settings", "Theme changed.");
+    mark_dirty_full();
+}
+
+static void settings_handle_row(i32 page, i32 row) {
+    if (page == 0 && row == 0) { settings_night_light = !settings_night_light; set_taskbar_message(settings_night_light ? "NIGHT LIGHT" : "DISPLAY"); return; }
+    if (page == 0 && row == 1) { settings_sound_enabled = !settings_sound_enabled; set_taskbar_message(settings_sound_enabled ? "SOUND ON" : "MUTED"); return; }
+    if (page == 0 && row == 2) { settings_notifications_enabled = !settings_notifications_enabled; set_taskbar_message(settings_notifications_enabled ? "NOTIFY ON" : "NOTIFY OFF"); if (settings_notifications_enabled) push_notification("Settings", "Notifications are enabled."); return; }
+    if (page == 0 && row == 3) { settings_focus_enabled = !settings_focus_enabled; set_taskbar_message(settings_focus_enabled ? "FOCUS ON" : "FOCUS OFF"); return; }
+    if (page == 0 && row == 4) { battery_saver = !battery_saver; set_taskbar_message(battery_saver ? "BATTERY SAVER" : "FULL POWER"); return; }
+    if (page == 1 && row == 0) { settings_bluetooth_enabled = !settings_bluetooth_enabled; set_taskbar_message(settings_bluetooth_enabled ? "BT ON" : "BT OFF"); return; }
+    if (page == 2 && row == 0) { wifi_enabled = !wifi_enabled; set_taskbar_message(wifi_enabled ? "WIFI ON" : "WIFI OFF"); return; }
+    if (page == 2 && row == 2) { open_window(WINDOW_BROWSER); set_taskbar_message("BROWSER"); return; }
+    if (page == 2 && row == 3) { open_window(WINDOW_STORE); set_taskbar_message("STORE"); return; }
+    if (page == 3 && row == 0) { settings_cycle_theme(); return; }
+    if (page == 3 && row == 2) { dock_scale_percent += 8; if (dock_scale_percent > 135) dock_scale_percent = 82; mark_dirty_taskbar(); set_taskbar_message("DOCK SIZE"); return; }
+    if (page == 4 && row == 0) { open_window(WINDOW_LAUNCHER); set_taskbar_message("APPS"); return; }
+    if (page == 4 && row == 1) { open_window(WINDOW_STORE); set_taskbar_message("STORE"); return; }
+    if (page == 5 && row == 2) { settings_privacy_lock = !settings_privacy_lock; set_taskbar_message(settings_privacy_lock ? "LOCK PRIVACY" : "LOCK OPEN"); return; }
+    if (page == 7 && row == 0) { settings_large_text = !settings_large_text; set_taskbar_message(settings_large_text ? "LARGE TEXT" : "TEXT SIZE"); return; }
+    if (page == 7 && row == 1) { settings_reduce_motion = !settings_reduce_motion; set_taskbar_message(settings_reduce_motion ? "MOTION LESS" : "MOTION ON"); return; }
+    if (page == 7 && row == 2) { settings_high_contrast = !settings_high_contrast; set_taskbar_message(settings_high_contrast ? "CONTRAST" : "GLASS"); return; }
+    if (page == 8 && row == 0) { set_taskbar_message("UP TO DATE"); push_notification("Updates", "LiquidOS is up to date."); return; }
+    if (page == 9 && row == 1) { open_window(WINDOW_FILES); set_taskbar_message("STORAGE"); return; }
+    set_taskbar_message(settings_row_title(page, row));
+}
+
 static void handle_settings_click(const Window *window) {
     i32 x = window->x + 6;
     i32 y = window->y + 30;
     i32 width = window->width - 12;
     i32 sidebar_w = width < 760 ? 218 : 258;
+    i32 nav_w = sidebar_w - 36;
+
+    if (point_in_rect(mouse_x, mouse_y, x + 22, y + 70, nav_w, 40)) {
+        settings_search_editing = true;
+        mark_dirty_rect(window->x, window->y, window->width, window->height);
+        return;
+    }
+    settings_search_editing = false;
+
     i32 nav_y = y + 122;
     for (i32 i = 0; i < 10; i++) {
-        if (!point_in_rect(mouse_x, mouse_y, x + 18, nav_y + i * 42, sidebar_w - 36, 34)) {
-            continue;
-        }
-        if (i == 3) {
-            current_theme = (current_theme + 1) % (sizeof(themes) / sizeof(themes[0]));
-            char theme_id[2];
-            theme_id[0] = (char)('0' + current_theme);
-            theme_id[1] = 0;
-            fs_write("SYSTEM/THEME.TXT", theme_id);
-            set_taskbar_message(themes[current_theme].name);
-            push_notification("Settings", "Theme changed.");
-            mark_dirty_full();
+        if (point_in_rect(mouse_x, mouse_y, x + 18, nav_y + i * 42, nav_w, 34)) {
+            settings_page = i;
+            set_taskbar_message(settings_page_label(i));
+            mark_dirty_rect(window->x, window->y, window->width, window->height);
             return;
         }
-        if (i == 4) {
-            open_window(WINDOW_LAUNCHER);
-            set_taskbar_message("APPS");
-            return;
-        }
-        if (i == 8) {
-            set_taskbar_message("SYSTEM CURRENT");
-            push_notification("Updates", "LiquidOS is up to date.");
-            return;
-        }
-        if (i == 9) {
-            set_taskbar_message("ABOUT LIQUIDOS");
-            push_notification("About", "LiquidOS Developer Preview.");
-            return;
-        }
-        set_taskbar_message("SETTINGS");
-        return;
     }
 
     i32 content_x = x + sidebar_w + 36;
-    i32 row_x = content_x;
     i32 row_y = y + 244;
     i32 row_w = width - sidebar_w - 70;
     for (i32 i = 0; i < 5; i++) {
-        if (point_in_rect(mouse_x, mouse_y, row_x, row_y + i * 68, row_w, 62)) {
-            if (i == 0) set_taskbar_message("DISPLAY");
-            if (i == 1) set_taskbar_message("SOUND");
-            if (i == 2) {
-                set_taskbar_message("NOTIFICATIONS");
-                push_notification("Settings", "Notifications are enabled.");
-            }
-            if (i == 3) set_taskbar_message("FOCUS");
-            if (i == 4) set_taskbar_message("POWER");
+        if (point_in_rect(mouse_x, mouse_y, content_x, row_y + i * 68, row_w, 62)) {
+            settings_handle_row(settings_page, i);
+            mark_dirty_rect(window->x, window->y, window->width, window->height);
             return;
+        }
+    }
+}
+
+static void settings_on_char(char ch) {
+    if (!settings_search_editing) {
+        return;
+    }
+    size_t length = strlen(settings_search);
+    if (ch == 8) {
+        if (length > 0) {
+            settings_search[length - 1] = 0;
+        }
+    } else if (ch >= 32 && ch <= 126 && length + 1 < sizeof(settings_search)) {
+        settings_search[length] = ch;
+        settings_search[length + 1] = 0;
+    }
+    for (i32 i = 0; settings_search[0] && i < 10; i++) {
+        if (contains_text_ci(settings_page_label(i), settings_search)) {
+            settings_page = i;
+            break;
         }
     }
 }
@@ -2298,10 +2438,15 @@ static void draw_window_frame(const Window *window, bool focused) {
     gfx_blur_round_rect(window->x, window->y, window->width, window->height, radius);
     gfx_blur_round_rect(window->x + 2, window->y + 2, window->width - 4, window->height - 4, radius - 2);
     gfx_refract_round_rect_edges(window->x, window->y, window->width, window->height, radius, 2);
+    bool settings_window = window == &windows[WINDOW_SETTINGS];
     gfx_fill_round_rect_plain_alpha(window->x + 2, window->y + 2, window->width - 4, window->height - 4,
-                                    radius - 2, RGB(210, 232, 255), focused ? 10 : 7);
+                                    radius - 2,
+                                    settings_window ? RGB(248, 250, 255) : RGB(210, 232, 255),
+                                    settings_window ? (focused ? 8 : 5) : (focused ? 10 : 7));
     gfx_fill_round_rect_alpha(window->x + 6, window->y + 30, window->width - 12, window->height - 36,
-                              radius - 8, theme->panel, focused ? 220 : 196);
+                              radius - 8,
+                              settings_window ? RGB(248, 250, 255) : theme->panel,
+                              settings_window ? (focused ? 16 : 10) : (focused ? 220 : 196));
     gfx_draw_round_rect_alpha(window->x, window->y, window->width, window->height, radius,
                               rim, focused ? 76 : 48);
 
@@ -2900,11 +3045,15 @@ static void draw_settings_nav_item(i32 x, i32 y, i32 width, const char *label, i
 static void draw_settings_search(i32 x, i32 y, i32 width) {
     gfx_blur_round_rect(x, y, width, 40, 14);
     gfx_refract_round_rect_edges(x, y, width, 40, 14, 1);
-    gfx_fill_round_rect_plain_alpha(x, y, width, 40, 14, RGB(238, 242, 255), 52);
-    gfx_draw_round_rect_alpha(x, y, width, 40, 14, RGB(250, 252, 255), 42);
-    gfx_draw_text(x + 18, y + 15, "Search settings", RGB(239, 244, 255), 1);
-    gfx_draw_round_rect_alpha(x + width - 30, y + 12, 12, 12, 6, RGB(239, 244, 255), 180);
-    gfx_draw_line(x + width - 20, y + 23, x + width - 14, y + 29, RGB(239, 244, 255));
+    gfx_fill_round_rect_plain_alpha(x, y, width, 40, 14, RGB(250, 252, 255),
+                                    settings_search_editing ? 50 : 34);
+    gfx_draw_round_rect_alpha(x, y, width, 40, 14, RGB(250, 252, 255),
+                              settings_search_editing ? 66 : 36);
+    const char *label = settings_search[0] ? settings_search : "Search settings";
+    Color text = settings_search[0] ? RGB(255, 255, 255) : RGB(232, 238, 255);
+    gfx_draw_text(x + 18, y + 15, label, text, 1);
+    gfx_draw_round_rect_alpha(x + width - 30, y + 12, 12, 12, 6, RGB(239, 244, 255), 150);
+    gfx_draw_line(x + width - 20, y + 23, x + width - 14, y + 29, RGB(232, 238, 255));
 }
 
 static void draw_settings_device_preview(i32 x, i32 y, i32 width, i32 height) {
@@ -2960,15 +3109,16 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     i32 main_x = x + sidebar_w + 36;
     i32 main_w = width - sidebar_w - 70;
     i32 nav_w = sidebar_w - 36;
+    const DesktopTheme *theme = &themes[current_theme];
 
     gfx_blur_round_rect(x, y, width, height, 20);
     gfx_refract_round_rect_edges(x, y, width, height, 20, 1);
-    gfx_fill_round_rect_plain_alpha(x, y, width, height, 20, RGB(105, 122, 215), 174);
-    gfx_fill_round_rect_alpha(x, y, width, height, 20, RGB(205, 210, 255), 48);
-    gfx_draw_round_rect_alpha(x, y, width, height, 20, RGB(246, 250, 255), 82);
+    gfx_fill_round_rect_plain_alpha(x, y, width, height, 20, RGB(248, 250, 255), 30);
+    gfx_fill_round_rect_alpha(x, y, width, height, 20, RGB(255, 255, 255), 10);
+    gfx_draw_round_rect_alpha(x, y, width, height, 20, RGB(246, 250, 255), 60);
 
-    gfx_fill_round_rect_plain_alpha(x, y, sidebar_w, height, 20, RGB(96, 112, 200), 88);
-    gfx_fill_rect(x + sidebar_w - 1, y + 8, 1, height - 16, RGB(166, 178, 236));
+    gfx_fill_round_rect_plain_alpha(x, y, sidebar_w, height, 20, RGB(255, 255, 255), 18);
+    gfx_fill_round_rect_plain_alpha(x + sidebar_w - 1, y + 10, 1, height - 20, 0, RGB(255, 255, 255), 54);
 
     gfx_fill_round_rect_alpha(x + 24, y + 22, 26, 26, 7, RGB(242, 246, 255), 94);
     gfx_fill_round_rect_alpha(x + 32, y + 29, 8, 16, 4, RGB(118, 134, 224), 230);
@@ -2977,47 +3127,55 @@ static void draw_settings_window(i32 x, i32 y, i32 width, i32 height) {
     draw_settings_search(x + 22, y + 70, nav_w);
 
     i32 nav_y = y + 122;
-    draw_settings_nav_item(x + 18, nav_y + 0 * 42, nav_w, "System", 0, true);
-    draw_settings_nav_item(x + 18, nav_y + 1 * 42, nav_w, "Bluetooth & devices", 1, false);
-    draw_settings_nav_item(x + 18, nav_y + 2 * 42, nav_w, "Network & internet", 2, false);
-    draw_settings_nav_item(x + 18, nav_y + 3 * 42, nav_w, "Personalization", 3, false);
-    draw_settings_nav_item(x + 18, nav_y + 4 * 42, nav_w, "Apps", 4, false);
-    draw_settings_nav_item(x + 18, nav_y + 5 * 42, nav_w, "Accounts", 5, false);
-    draw_settings_nav_item(x + 18, nav_y + 6 * 42, nav_w, "Time & language", 6, false);
-    draw_settings_nav_item(x + 18, nav_y + 7 * 42, nav_w, "Accessibility", 7, false);
-    draw_settings_nav_item(x + 18, nav_y + 8 * 42, nav_w, "Updates", 8, false);
-    draw_settings_nav_item(x + 18, nav_y + 9 * 42, nav_w, "About", 9, false);
+    draw_settings_nav_item(x + 18, nav_y + 0 * 42, nav_w, "System", 0, settings_page == 0);
+    draw_settings_nav_item(x + 18, nav_y + 1 * 42, nav_w, "Bluetooth & devices", 1, settings_page == 1);
+    draw_settings_nav_item(x + 18, nav_y + 2 * 42, nav_w, "Network & internet", 2, settings_page == 2);
+    draw_settings_nav_item(x + 18, nav_y + 3 * 42, nav_w, "Personalization", 3, settings_page == 3);
+    draw_settings_nav_item(x + 18, nav_y + 4 * 42, nav_w, "Apps", 4, settings_page == 4);
+    draw_settings_nav_item(x + 18, nav_y + 5 * 42, nav_w, "Accounts", 5, settings_page == 5);
+    draw_settings_nav_item(x + 18, nav_y + 6 * 42, nav_w, "Time & language", 6, settings_page == 6);
+    draw_settings_nav_item(x + 18, nav_y + 7 * 42, nav_w, "Accessibility", 7, settings_page == 7);
+    draw_settings_nav_item(x + 18, nav_y + 8 * 42, nav_w, "Updates", 8, settings_page == 8);
+    draw_settings_nav_item(x + 18, nav_y + 9 * 42, nav_w, "About", 9, settings_page == 9);
 
-    gfx_draw_text(main_x, y + 58, "System", RGB(250, 252, 255), 2);
-    gfx_draw_text(main_x, y + 92, "Manage your device and preferences", RGB(230, 236, 255), 1);
+    gfx_draw_text(main_x, y + 58, settings_page_label(settings_page), RGB(250, 252, 255), 2);
+    gfx_draw_text(main_x, y + 92, settings_page_subtitle(settings_page), RGB(230, 236, 255), 1);
 
     i32 device_y = y + 132;
     gfx_blur_round_rect(main_x, device_y, main_w, 100, 18);
     gfx_refract_round_rect_edges(main_x, device_y, main_w, 100, 18, 1);
-    gfx_fill_round_rect_plain_alpha(main_x, device_y, main_w, 100, 18, RGB(230, 236, 255), 62);
+    gfx_fill_round_rect_plain_alpha(main_x, device_y, main_w, 100, 18, RGB(255, 255, 255), 36);
+    gfx_fill_round_rect_plain_alpha(main_x + 2, device_y + 2, main_w - 4, 34, 16, theme->accent, 10);
     gfx_draw_round_rect_alpha(main_x, device_y, main_w, 100, 18, RGB(250, 252, 255), 44);
-    draw_settings_device_preview(main_x + 18, device_y + 16, 150, 68);
-    gfx_draw_text(main_x + 188, device_y + 26, "Aurora", RGB(250, 252, 255), 2);
-    gfx_draw_text(main_x + 188, device_y + 58, "LiquidOS Developer Preview", RGB(226, 232, 255), 1);
-    gfx_draw_text(main_x + 188, device_y + 78, fs_persistence_available() ? "Storage: disk-backed" : "Storage: RAM only", RGB(205, 214, 250), 1);
+    if (settings_page == 0 || settings_page == 9) {
+        draw_settings_device_preview(main_x + 18, device_y + 16, 150, 68);
+        gfx_draw_text(main_x + 188, device_y + 26, settings_page == 0 ? "Aurora" : "LiquidOS", RGB(250, 252, 255), 2);
+        gfx_draw_text(main_x + 188, device_y + 58, "Developer Preview", RGB(226, 232, 255), 1);
+        gfx_draw_text(main_x + 188, device_y + 78, fs_persistence_available() ? "Storage: disk-backed" : "Storage: RAM only", RGB(205, 214, 250), 1);
+    } else {
+        draw_settings_row_icon(settings_page % 5, main_x + 28, device_y + 28);
+        gfx_draw_text(main_x + 92, device_y + 26, settings_page_label(settings_page), RGB(250, 252, 255), 2);
+        gfx_draw_text(main_x + 92, device_y + 58, settings_page_subtitle(settings_page), RGB(226, 232, 255), 1);
+        gfx_draw_text(main_x + 92, device_y + 78, "Choose a row below to apply or open it.", RGB(205, 214, 250), 1);
+    }
 
     i32 list_y = y + 244;
     i32 row_h = 62;
     i32 step = 68;
     gfx_blur_round_rect(main_x, list_y, main_w, step * 5 - 6, 18);
     gfx_refract_round_rect_edges(main_x, list_y, main_w, step * 5 - 6, 18, 1);
-    gfx_fill_round_rect_plain_alpha(main_x, list_y, main_w, step * 5 - 6, 18, RGB(95, 112, 200), 74);
+    gfx_fill_round_rect_plain_alpha(main_x, list_y, main_w, step * 5 - 6, 18, RGB(255, 255, 255), 30);
     gfx_draw_round_rect_alpha(main_x, list_y, main_w, step * 5 - 6, 18, RGB(250, 252, 255), 38);
 
-    draw_settings_system_row(main_x, list_y + 0 * step, main_w, 0, "Display", "Brightness, contrast, night light, display profile");
-    gfx_fill_rect(main_x + 16, list_y + row_h, main_w - 32, 1, RGB(172, 184, 234));
-    draw_settings_system_row(main_x, list_y + 1 * step, main_w, 1, "Sound", "Volume levels, output, input, sound devices");
-    gfx_fill_rect(main_x + 16, list_y + step + row_h, main_w - 32, 1, RGB(172, 184, 234));
-    draw_settings_system_row(main_x, list_y + 2 * step, main_w, 2, "Notifications", "Manage alerts from apps and system");
-    gfx_fill_rect(main_x + 16, list_y + step * 2 + row_h, main_w - 32, 1, RGB(172, 184, 234));
-    draw_settings_system_row(main_x, list_y + 3 * step, main_w, 3, "Focus", "Reduce distractions and stay in the zone");
-    gfx_fill_rect(main_x + 16, list_y + step * 3 + row_h, main_w - 32, 1, RGB(172, 184, 234));
-    draw_settings_system_row(main_x, list_y + 4 * step, main_w, 4, "Power & battery", "Sleep, battery usage, battery saver");
+    for (i32 i = 0; i < 5; i++) {
+        draw_settings_system_row(main_x, list_y + i * step, main_w, i,
+                                 settings_row_title(settings_page, i),
+                                 settings_row_subtitle(settings_page, i));
+        if (i < 4) {
+            gfx_fill_round_rect_plain_alpha(main_x + 16, list_y + i * step + row_h,
+                                            main_w - 32, 1, 0, RGB(255, 255, 255), 42);
+        }
+    }
 }
 
 static void draw_control_center_window(i32 x, i32 y, i32 width, i32 height) {
@@ -3260,6 +3418,9 @@ void ui_handle_event(const InputEvent *event) {
         } else if (focused_window == WINDOW_FILES && windows[WINDOW_FILES].open) {
             files_on_char(event->ch);
             mark_dirty_window(WINDOW_FILES);
+        } else if (focused_window == WINDOW_SETTINGS && windows[WINDOW_SETTINGS].open) {
+            settings_on_char(event->ch);
+            mark_dirty_window(WINDOW_SETTINGS);
         }
         return;
     }

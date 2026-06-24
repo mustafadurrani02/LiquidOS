@@ -2280,13 +2280,6 @@ static void draw_liquid_reference_glass(i32 x, i32 y, i32 width, i32 height, i32
     gfx_liquid_glass_rect(x, y, width, height, radius);
     gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 64);
     gfx_draw_round_rect_alpha(x + 1, y + 1, width - 2, height - 2, inner_radius, RGB(255, 255, 255), 18);
-    if (radius > 8) {
-        i32 corner = radius / 3;
-        gfx_fill_circle_alpha(x + radius / 2, y + radius / 2, corner, RGB(248, 252, 255), 12);
-        gfx_fill_circle_alpha(x + width - radius / 2, y + radius / 2, corner, RGB(248, 252, 255), 10);
-        gfx_fill_circle_alpha(x + radius / 2, y + height - radius / 2, corner, RGB(248, 252, 255), 8);
-        gfx_fill_circle_alpha(x + width - radius / 2, y + height - radius / 2, corner, RGB(248, 252, 255), 8);
-    }
 }
 
 static void draw_glass_panel(i32 x, i32 y, i32 width, i32 height, i32 radius) {
@@ -2451,8 +2444,7 @@ static void draw_dock_divider(const TaskbarLayout *bar) {
     i32 x = bar->clock_x + bar->clock_w + dock_gap() / 2;
     i32 y = bar->y + dock_gap();
     i32 height = bar->h - dock_gap() * 2;
-    gfx_fill_rect(x, y, 1, height, RGB(133, 142, 163));
-    gfx_fill_rect(x + 1, y, 1, height, RGB(30, 35, 51));
+    gfx_fill_round_rect_plain_alpha(x, y, 1, height, 0, RGB(246, 252, 255), 54);
 }
 
 static void draw_dock_resize_grip(const TaskbarLayout *bar) {

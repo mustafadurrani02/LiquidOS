@@ -416,7 +416,7 @@ void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
             put_pixel(px, py, blend(get_pixel(px, py), color, effective));
 
             if (local_y < 3) {
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((108 * coverage) / 255)));
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((58 * coverage) / 255)));
             } else if (from_bottom < 3) {
                 put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((58 * coverage) / 255)));
             }
@@ -441,7 +441,7 @@ void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
                 }
 
                 i32 rim_distance = local_y < 5 ? local_y : (from_bottom < 5 ? from_bottom : edge);
-                u8 rim = (u8)(((5 - rim_distance) * (from_bottom < 5 ? 22 : 31) * coverage) / 255);
+                u8 rim = (u8)(((5 - rim_distance) * (local_y < 5 || from_bottom < 5 ? 22 : 31) * coverage) / 255);
                 put_pixel(px, py, blend(get_pixel(px, py), ambient, rim));
                 put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((rim * 4) / 5)));
             }

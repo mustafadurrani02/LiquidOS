@@ -440,6 +440,22 @@ void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
                 put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((rim * 4) / 5)));
             }
 
+            if (radius > 10 && edge < radius && (local_y < radius || from_bottom < radius)) {
+                i32 cx = edge_x < radius ? radius : width - radius - 1;
+                i32 cy = local_y < radius ? radius : height - radius - 1;
+                i32 dx = edge_x - cx;
+                i32 dy = local_y - cy;
+                i32 delta = dx * dx + dy * dy - radius * radius;
+                if (delta < 0) {
+                    delta = -delta;
+                }
+                i32 band = radius * 3;
+                if (delta < band) {
+                    u8 arc = (u8)(((band - delta) * 68 * coverage) / (band * 255));
+                    put_pixel(px, py, blend(get_pixel(px, py), RGB(244, 252, 255), arc));
+                }
+            }
+
             i32 small = width < 180 || height < 46;
             u8 h1 = liquid_highlight_alpha(px, py, x + width / 13, y + height / 5,
                                            small ? width / 5 : width / 7,

@@ -41,8 +41,8 @@
 #define RX_BUFFER_SIZE (8192 + 16 + 1500)
 #define TX_BUFFER_SIZE 2048
 #define NET_PACKET_SIZE 1536
-#define HTTP_RAW_SIZE 4096
-#define HTTP_BODY_SIZE 8192
+#define HTTP_RAW_SIZE 8192
+#define HTTP_BODY_SIZE 16384
 
 typedef struct NetRoute {
     const char *url;
@@ -71,23 +71,30 @@ static const NetRoute routes[] = {
     {
         "http://liquidos.local/",
         "text/html",
-        "LiquidOS Network Home\n"
-        "Status: online through LiquidOS networking\n"
-        "Try http://liquidos.local/store, http://liquidos.local/docs, or http://example.com/\n"
+        "<body style=\"background:#111827;color:#f8fafc\">"
+        "<h1>LiquidOS Network Home</h1>"
+        "<p>Status: online through LiquidOS networking.</p>"
+        "<div style=\"background:rgba(94,94,94,.28);border-radius:18px;padding:14px\">"
+        "Try http://liquidos.local/store, http://liquidos.local/docs, or http://example.com/"
+        "</div></body>"
     },
     {
         "http://liquidos.local/store",
         "text/html",
-        "LiquidOS Store\n"
-        "Downloadable packages: notes.lpkg, paint.lpkg, calc.lpkg\n"
-        "Use Terminal: download notes\n"
+        "<body style=\"background:#15111f;color:#f8fafc\">"
+        "<h1>LiquidOS Store</h1>"
+        "<p>Downloadable packages: notes.lpkg, paint.lpkg, calc.lpkg.</p>"
+        "<button style=\"background:#8b5cf6;color:white;border-radius:16px;padding:12px\">Use Terminal: download notes</button>"
+        "</body>"
     },
     {
         "http://liquidos.local/docs",
         "text/html",
-        "LiquidOS Networking\n"
-        "This build includes a QEMU RTL8139 driver, ARP, DNS, TCP, and plain HTTP GET.\n"
-        "HTTPS/TLS and a full HTML engine are still future systems.\n"
+        "<body style=\"background:#0f172a;color:#e5e7eb\">"
+        "<h1>LiquidOS Networking</h1>"
+        "<p>This build includes a QEMU RTL8139 driver, ARP, DNS, TCP, and plain HTTP GET.</p>"
+        "<p>HTTPS pages are fetched through WebBridge and rendered by Liqueia's native HTML/CSS engine.</p>"
+        "</body>"
     },
     {
         "http://liquidos.local/downloads/readme.txt",

@@ -6,7 +6,7 @@
 #define LIQUEIA_MAX_TABS 3
 #define LIQUEIA_MAX_HISTORY 6
 #define LIQUEIA_URL_LENGTH 384
-#define LIQUEIA_BODY_LENGTH 8192
+#define LIQUEIA_BODY_LENGTH 16384
 #define LIQUEIA_TEXT_LENGTH 3072
 #define LIQUEIA_MIME_LENGTH 48
 
@@ -87,15 +87,6 @@ static bool contains_text_ci(const char *text, const char *needle) {
         text++;
     }
     return false;
-}
-
-static bool is_youtube_address(const char *address) {
-    return contains_text_ci(address, "youtube.com") || contains_text_ci(address, "youtu.be");
-}
-
-static bool is_google_address(const char *address) {
-    return contains_text_ci(address, "google.com") ||
-           contains_text_ci(address, "suggestqueries.google.com");
 }
 
 static void set_address(LiqueiaTab *tab, const char *address) {
@@ -200,60 +191,10 @@ static void normalize_address_input(const char *input, char *out, size_t out_siz
     build_google_search_url(trimmed, out, out_size);
 }
 
-static bool line_equals(const char *line, const char *value) {
-    while (*line && *value) {
-        if (ascii_lower(*line) != ascii_lower(*value)) {
-            return false;
-        }
-        line++;
-        value++;
-    }
-    return *line == 0 && *value == 0;
-}
-
-static bool skip_display_line(const char *line) {
-    static const char *noise[] = {
-        "Please click",
-        "here",
-        "if you are not redirected within a few seconds.",
-        "All",
-        "Images",
-        "Maps",
-        "Videos",
-        "News",
-        "Books",
-        "Search tools",
-        "Any time",
-        "Past hour",
-        "Past 24 hours",
-        "Past week",
-        "Past month",
-        "Past year",
-        "All results",
-        "Verbatim",
-        "People also search for",
-        "Next >",
-        "From your IP address",
-        "Learn more",
-        "Sign in",
-        "Settings",
-        "Privacy",
-        "Terms",
-        "Dark theme: Off",
-    };
-
-    for (size_t i = 0; i < sizeof(noise) / sizeof(noise[0]); i++) {
-        if (line_equals(line, noise[i])) {
-            return true;
-        }
-    }
-    return false;
-}
-
 static void append_display_line(char *out, size_t out_size, const char *line) {
     char trimmed[160];
     copy_trimmed(line, trimmed, sizeof(trimmed));
-    if (strlen(trimmed) < 3 || skip_display_line(trimmed)) {
+    if (strlen(trimmed) < 3) {
         return;
     }
     append_text(out, out_size, trimmed);
@@ -389,74 +330,9 @@ static void format_html_as_text(const char *html, char *out, size_t out_size) {
     }
 }
 
-static void format_google_suggestions(const char *json, char *out, size_t out_size) {
-    out[0] = 0;
-    append_text(out, out_size, "Google search suggestions\n");
-
-    i32 depth = 0;
-    bool in_string = false;
-    bool escaping = false;
-    bool capture = false;
-    char item[120];
-    size_t item_used = 0;
-    u32 count = 0;
-
-    for (const char *p = json; *p && count < 8; p++) {
-        char ch = *p;
-        if (!in_string) {
-            if (ch == '[') {
-                depth++;
-            } else if (ch == ']') {
-                depth--;
-            } else if (ch == '"') {
-                in_string = true;
-                escaping = false;
-                capture = depth == 2;
-                item_used = 0;
-                item[0] = 0;
-            }
-            continue;
-        }
-
-        if (escaping) {
-            if (capture && item_used + 1 < sizeof(item)) {
-                item[item_used++] = ch;
-                item[item_used] = 0;
-            }
-            escaping = false;
-            continue;
-        }
-        if (ch == '\\') {
-            escaping = true;
-            continue;
-        }
-        if (ch == '"') {
-            in_string = false;
-            if (capture && item[0]) {
-                append_text(out, out_size, "- ");
-                append_text(out, out_size, item);
-                append_text(out, out_size, "\n");
-                count++;
-            }
-            capture = false;
-            continue;
-        }
-        if (capture && item_used + 1 < sizeof(item)) {
-            item[item_used++] = ch;
-            item[item_used] = 0;
-        }
-    }
-
-    if (count == 0) {
-        append_text(out, out_size, "Google returned no suggestions for this query.\n");
-    }
-}
-
 static void format_response_text(LiqueiaTab *tab) {
     tab->display_text[0] = 0;
-    if (starts_with(tab->address, "http://suggestqueries.google.com/complete/search")) {
-        format_google_suggestions(tab->body, tab->display_text, sizeof(tab->display_text));
-    } else if (starts_with(tab->mime, "text/html")) {
+    if (starts_with(tab->mime, "text/html")) {
         format_html_as_text(tab->body, tab->display_text, sizeof(tab->display_text));
         if (!tab->display_text[0]) {
             strncpy(tab->display_text, "HTML page loaded, but no readable text was found.", sizeof(tab->display_text) - 1);
@@ -775,154 +651,302 @@ static void draw_offline(i32 x, i32 y, i32 width, i32 height) {
     }
 }
 
-static void draw_youtube_card(i32 x, i32 y, i32 width, const char *title, const char *meta, Color accent) {
-    gfx_fill_round_rect_plain_alpha(x, y, width, 142, 18, RGB(20, 21, 27), 255);
-    gfx_fill_round_rect_plain_alpha(x + 10, y + 10, width - 20, 82, 14, accent, 255);
-    gfx_fill_circle_alpha(x + width / 2, y + 51, 24, RGB(255, 255, 255), 54);
-    gfx_draw_text(x + width / 2 - 5, y + 42, ">", RGB(255, 255, 255), 2);
-    gfx_draw_text(x + 12, y + 104, title, RGB(245, 245, 248), 1);
-    gfx_draw_text(x + 12, y + 124, meta, RGB(151, 152, 162), 1);
+typedef struct WebStyle {
+    Color color;
+    Color bg;
+    bool has_bg;
+    bool glass;
+    i32 radius;
+    i32 padding;
+    i32 margin;
+    i32 width;
+    i32 height;
+    u32 scale;
+} WebStyle;
+
+static bool css_name_match(const char *text, const char *name) {
+    while (*name) {
+        if (ascii_lower(*text) != ascii_lower(*name)) {
+            return false;
+        }
+        text++;
+        name++;
+    }
+    return true;
 }
 
-static void draw_youtube_page(i32 x, i32 y, i32 width, i32 height) {
-    LiqueiaTab *tab = &tabs[active_tab];
-    i32 panel_x = x + 24;
-    i32 panel_y = y + 152;
-    i32 panel_w = width - 48;
-    gfx_fill_round_rect_plain_alpha(panel_x, panel_y, panel_w, height - 172, 24, RGB(14, 15, 20), 255);
-    gfx_fill_round_rect_plain_alpha(panel_x + 26, panel_y + 24, 44, 32, 10, RGB(255, 34, 34), 255);
-    gfx_draw_text(panel_x + 42, panel_y + 31, ">", RGB(255, 255, 255), 1);
-    gfx_draw_text(panel_x + 82, panel_y + 25, "YouTube", RGB(255, 255, 255), 2);
-    gfx_fill_round_rect_plain_alpha(panel_x + 210, panel_y + 22, panel_w - 316, 38, 18, RGB(31, 32, 39), 255);
-    gfx_draw_text(panel_x + 228, panel_y + 33, "Search YouTube", RGB(167, 168, 178), 1);
-    gfx_fill_round_rect_plain_alpha(panel_x + panel_w - 86, panel_y + 22, 58, 38, 18, RGB(37, 38, 46), 255);
-    gfx_draw_text(panel_x + panel_w - 65, panel_y + 33, "Go", RGB(245, 245, 248), 1);
-
-    gfx_draw_text(panel_x + 28, panel_y + 84, "Home", RGB(255, 255, 255), 1);
-    gfx_draw_text(panel_x + 96, panel_y + 84, "Shorts", RGB(171, 172, 182), 1);
-    gfx_draw_text(panel_x + 178, panel_y + 84, "Subscriptions", RGB(171, 172, 182), 1);
-    gfx_draw_text(panel_x + 312, panel_y + 84, "Music", RGB(171, 172, 182), 1);
-
-    if (tab->display_text[0]) {
-        const char *line = tab->display_text;
-        i32 row = 0;
-        i32 card_w = (panel_w - 76) / 3;
-        if (card_w < 150) {
-            card_w = (panel_w - 60) / 2;
-        }
-        while (*line && row < 8) {
-            char text[72];
-            size_t used = 0;
-            while (line[used] && line[used] != '\n' && used + 1 < sizeof(text)) {
-                text[used] = line[used];
-                used++;
-            }
-            text[used] = 0;
-            if (text[0] &&
-                !starts_with_ci(text, "YouTube") &&
-                !starts_with_ci(text, "Fetched live") &&
-                !starts_with_ci(text, "Page title") &&
-                !starts_with_ci(text, "Real HTTPS") &&
-                !starts_with_ci(text, "Live page items:")) {
-                i32 col = row % 3;
-                i32 card_row = row / 3;
-                if (panel_w < 590) {
-                    col = row % 2;
-                    card_row = row / 2;
-                }
-                draw_youtube_card(panel_x + 22 + col * (card_w + 16),
-                                  panel_y + 116 + card_row * 158,
-                                  card_w, text[0] == '-' ? text + 2 : text,
-                                  "Live from YouTube", row % 2 ? RGB(153, 65, 96) : RGB(88, 80, 190));
-                row++;
-            }
-            line += used;
-            if (*line == '\n') {
-                line++;
-            }
-        }
-        if (row > 0) {
-            return;
-        }
+static i32 css_number(const char *text) {
+    while (*text && (*text < '0' || *text > '9')) {
+        text++;
     }
-
-    i32 card_w = (panel_w - 76) / 3;
-    if (card_w < 150) {
-        card_w = (panel_w - 60) / 2;
-        draw_youtube_card(panel_x + 22, panel_y + 116, card_w, "LiquidOS first look", "12K views - now", RGB(88, 80, 190));
-        draw_youtube_card(panel_x + 38 + card_w, panel_y + 116, card_w, "Liqueia browser demo", "8.4K views", RGB(153, 65, 96));
-        draw_youtube_card(panel_x + 22, panel_y + 274, card_w, "Building an OS", "Live", RGB(45, 96, 142));
-        draw_youtube_card(panel_x + 38 + card_w, panel_y + 274, card_w, "Desktop tour", "New", RGB(92, 76, 52));
-        return;
+    i32 value = 0;
+    while (*text >= '0' && *text <= '9') {
+        value = value * 10 + (*text - '0');
+        text++;
     }
-
-    draw_youtube_card(panel_x + 22, panel_y + 116, card_w, "LiquidOS first look", "12K views - now", RGB(88, 80, 190));
-    draw_youtube_card(panel_x + 38 + card_w, panel_y + 116, card_w, "Liqueia browser demo", "8.4K views", RGB(153, 65, 96));
-    draw_youtube_card(panel_x + 54 + card_w * 2, panel_y + 116, card_w, "Building an OS", "Live", RGB(45, 96, 142));
-    draw_youtube_card(panel_x + 22, panel_y + 274, card_w, "Desktop tour", "New", RGB(92, 76, 52));
-    draw_youtube_card(panel_x + 38 + card_w, panel_y + 274, card_w, "Kernel devlog", "Recommended", RGB(62, 95, 88));
-    draw_youtube_card(panel_x + 54 + card_w * 2, panel_y + 274, card_w, "UI polish session", "4.9K views", RGB(104, 74, 128));
+    return value;
 }
 
-static void draw_google_page(i32 x, i32 y, i32 width, i32 height) {
-    LiqueiaTab *tab = &tabs[active_tab];
-    i32 panel_x = x + 24;
-    i32 panel_y = y + 152;
-    i32 panel_w = width - 48;
-    gfx_fill_round_rect_plain_alpha(panel_x, panel_y, panel_w, height - 172, 24, RGB(18, 19, 25), 255);
-    gfx_draw_text(panel_x + 40, panel_y + 30, "Google", RGB(246, 238, 222), 2);
-    gfx_fill_round_rect_plain_alpha(panel_x + 40, panel_y + 70, panel_w - 80, 44, 20, RGB(35, 36, 43), 255);
-    gfx_draw_text(panel_x + 58, panel_y + 84, "Search results from Google", RGB(182, 183, 192), 1);
-
-    const char *line = tab->display_text;
-    i32 row = 0;
-    while (*line && row < 7) {
-        char text[72];
+static bool copy_css_value(const char *css, const char *property, char *out, size_t out_size) {
+    size_t property_len = strlen(property);
+    for (const char *p = css; *p; p++) {
+        bool boundary = p == css || p[-1] == ';' || p[-1] == '{' || p[-1] == ' ' || p[-1] == '\t';
+        if (!boundary || !css_name_match(p, property)) {
+            continue;
+        }
+        const char *q = p + property_len;
+        while (*q == ' ' || *q == '\t') {
+            q++;
+        }
+        if (*q != ':') {
+            continue;
+        }
+        q++;
+        while (*q == ' ' || *q == '\t') {
+            q++;
+        }
         size_t used = 0;
-        while (line[used] && line[used] != '\n' && used + 1 < sizeof(text)) {
-            text[used] = line[used];
-            used++;
+        while (*q && *q != ';' && *q != '}' && used + 1 < out_size) {
+            out[used++] = *q++;
         }
-        text[used] = 0;
-        if (text[0] && !starts_with_ci(text, "Google search suggestions")) {
-            i32 result_y = panel_y + 140 + row * 44;
-            gfx_draw_text(panel_x + 48, result_y, text, RGB(134, 176, 255), 1);
-            gfx_draw_text(panel_x + 48, result_y + 20, "Search Google for this result", RGB(151, 152, 162), 1);
-            row++;
+        out[used] = 0;
+        return used > 0;
+    }
+    return false;
+}
+
+static u8 hex_value(char ch) {
+    if (ch >= '0' && ch <= '9') {
+        return (u8)(ch - '0');
+    }
+    ch = ascii_lower(ch);
+    return (ch >= 'a' && ch <= 'f') ? (u8)(10 + ch - 'a') : 0;
+}
+
+static bool parse_css_color(const char *value, Color *out) {
+    while (*value == ' ' || *value == '\t') {
+        value++;
+    }
+    if (contains_text_ci(value, "transparent")) {
+        return false;
+    }
+    if (*value == '#') {
+        value++;
+        if (strlen(value) >= 6) {
+            *out = RGB((hex_value(value[0]) << 4) | hex_value(value[1]),
+                       (hex_value(value[2]) << 4) | hex_value(value[3]),
+                       (hex_value(value[4]) << 4) | hex_value(value[5]));
+            return true;
         }
-        line += used;
-        if (*line == '\n') {
-            line++;
+        if (strlen(value) >= 3) {
+            u8 r = hex_value(value[0]);
+            u8 g = hex_value(value[1]);
+            u8 b = hex_value(value[2]);
+            *out = RGB((r << 4) | r, (g << 4) | g, (b << 4) | b);
+            return true;
         }
     }
+    if (starts_with_ci(value, "rgb")) {
+        i32 r = css_number(value);
+        const char *comma = value;
+        while (*comma && *comma != ',') {
+            comma++;
+        }
+        i32 g = *comma ? css_number(comma + 1) : r;
+        comma++;
+        while (*comma && *comma != ',') {
+            comma++;
+        }
+        i32 b = *comma ? css_number(comma + 1) : g;
+        *out = RGB(r > 255 ? 255 : r, g > 255 ? 255 : g, b > 255 ? 255 : b);
+        return true;
+    }
+    if (starts_with_ci(value, "white")) { *out = RGB(255, 255, 255); return true; }
+    if (starts_with_ci(value, "black")) { *out = RGB(0, 0, 0); return true; }
+    if (starts_with_ci(value, "blue")) { *out = RGB(80, 150, 255); return true; }
+    if (starts_with_ci(value, "purple")) { *out = RGB(168, 85, 247); return true; }
+    if (starts_with_ci(value, "red")) { *out = RGB(239, 68, 68); return true; }
+    if (starts_with_ci(value, "yellow")) { *out = RGB(234, 179, 8); return true; }
+    if (starts_with_ci(value, "gray") || starts_with_ci(value, "grey")) { *out = RGB(107, 114, 128); return true; }
+    return false;
+}
 
-    if (row == 0) {
-        gfx_draw_text(panel_x + 48, panel_y + 148, "Type a search in the address bar and press Enter.", RGB(205, 205, 212), 1);
+static void web_apply_declarations(WebStyle *style, const char *css) {
+    char value[80];
+    Color color;
+    if (copy_css_value(css, "color", value, sizeof(value)) && parse_css_color(value, &color)) {
+        style->color = color;
+    }
+    if ((copy_css_value(css, "background-color", value, sizeof(value)) ||
+         copy_css_value(css, "background", value, sizeof(value))) &&
+        parse_css_color(value, &color)) {
+        style->bg = color;
+        style->has_bg = true;
+    }
+    if (copy_css_value(css, "border-radius", value, sizeof(value))) {
+        style->radius = css_number(value);
+    }
+    if (copy_css_value(css, "padding", value, sizeof(value))) {
+        style->padding = css_number(value);
+    }
+    if (copy_css_value(css, "margin", value, sizeof(value))) {
+        style->margin = css_number(value);
+    }
+    if (copy_css_value(css, "width", value, sizeof(value))) {
+        style->width = css_number(value);
+    }
+    if (copy_css_value(css, "height", value, sizeof(value))) {
+        style->height = css_number(value);
+    }
+    if (copy_css_value(css, "font-size", value, sizeof(value))) {
+        style->scale = css_number(value) >= 20 ? 2 : 1;
+    }
+    if (contains_text_ci(css, "backdrop-filter") || contains_text_ci(css, "box-shadow")) {
+        style->glass = true;
     }
 }
 
-static void draw_web_page(i32 x, i32 y, i32 width, i32 height) {
-    LiqueiaTab *tab = &tabs[active_tab];
-    NetResponse fetched = tab->response;
-    if (is_youtube_address(tab->address)) {
-        draw_youtube_page(x, y, width, height);
-        return;
+static bool copy_attr(const char *tag, const char *name, char *out, size_t out_size) {
+    size_t name_len = strlen(name);
+    for (const char *p = tag; *p; p++) {
+        bool boundary = p == tag || p[-1] == ' ' || p[-1] == '\t';
+        if (!boundary || !css_name_match(p, name)) {
+            continue;
+        }
+        const char *q = p + name_len;
+        while (*q == ' ' || *q == '\t') {
+            q++;
+        }
+        if (*q != '=') {
+            continue;
+        }
+        q++;
+        while (*q == ' ' || *q == '\t') {
+            q++;
+        }
+        char quote = (*q == '"' || *q == '\'') ? *q++ : ' ';
+        size_t used = 0;
+        while (*q && ((quote == ' ' && *q != ' ' && *q != '\t' && *q != '>') || (quote != ' ' && *q != quote)) &&
+               used + 1 < out_size) {
+            out[used++] = *q++;
+        }
+        out[used] = 0;
+        return used > 0;
     }
-    if (is_google_address(tab->address)) {
-        draw_google_page(x, y, width, height);
-        return;
+    return false;
+}
+
+static void web_apply_embedded_css(const char *html, const char *selector, WebStyle *style) {
+    const char *p = html;
+    while ((p = find_after_ci(p, "<style")) && *p) {
+        const char *end = find_after_ci(p, "</style>");
+        while (p < end && *p) {
+            if (css_name_match(p, selector)) {
+                const char *open = p;
+                while (open < end && *open != '{') {
+                    open++;
+                }
+                const char *close = open;
+                while (close < end && *close != '}') {
+                    close++;
+                }
+                if (*open == '{') {
+                    char decl[220];
+                    size_t used = 0;
+                    open++;
+                    while (open < close && used + 1 < sizeof(decl)) {
+                        decl[used++] = *open++;
+                    }
+                    decl[used] = 0;
+                    web_apply_declarations(style, decl);
+                }
+                return;
+            }
+            p++;
+        }
+        p = end;
     }
+}
 
-    gfx_fill_round_rect_plain_alpha(x + 24, y + 152, width - 48, height - 172, 24, RGB(24, 25, 32), 255);
-    gfx_fill_circle_alpha(x + width - 110, y + 205, 72, RGB(86, 155, 255), 20);
-    gfx_draw_text(x + 52, y + 184, fetched.status == 200 ? "Page loaded" : "Request failed", RGB(246, 238, 222), 2);
-    gfx_draw_text(x + 52, y + 216, fetched.mime, RGB(216, 170, 88), 1);
-    draw_text_trimmed(x + 52, y + 242, fetched.message, 60, RGB(205, 205, 212));
+static void web_default_style(const char *tag, WebStyle *style, Color inherited) {
+    *style = (WebStyle){ inherited, RGB(24, 25, 32), false, false, 16, 8, 5, 0, 0, 1 };
+    if (starts_with_ci(tag, "h1")) {
+        style->scale = 2;
+        style->color = RGB(248, 250, 252);
+        style->margin = 10;
+    } else if (starts_with_ci(tag, "h2") || starts_with_ci(tag, "h3")) {
+        style->scale = 2;
+        style->color = RGB(226, 232, 240);
+    } else if (starts_with_ci(tag, "a")) {
+        style->color = RGB(125, 181, 255);
+    } else if (starts_with_ci(tag, "button") || starts_with_ci(tag, "input")) {
+        style->has_bg = true;
+        style->bg = RGB(59, 130, 246);
+        style->color = RGB(255, 255, 255);
+        style->radius = 16;
+        style->padding = 12;
+    }
+}
 
+static bool web_block_tag(const char *tag) {
+    return starts_with_ci(tag, "div") || starts_with_ci(tag, "p") || starts_with_ci(tag, "li") ||
+           starts_with_ci(tag, "h") || starts_with_ci(tag, "section") || starts_with_ci(tag, "article") ||
+           starts_with_ci(tag, "main") || starts_with_ci(tag, "header") || starts_with_ci(tag, "footer") ||
+           starts_with_ci(tag, "button") || starts_with_ci(tag, "input");
+}
+
+static void copy_tag_name(const char *tag, char *out, size_t out_size) {
+    size_t used = 0;
+    while (*tag == '<' || *tag == '/' || *tag == ' ' || *tag == '\t') {
+        tag++;
+    }
+    while ((*tag >= 'a' && *tag <= 'z') || (*tag >= 'A' && *tag <= 'Z') || (*tag >= '0' && *tag <= '9')) {
+        if (used + 1 < out_size) {
+            out[used++] = *tag;
+        }
+        tag++;
+    }
+    out[used] = 0;
+}
+
+static i32 draw_web_text(i32 x, i32 y, i32 max_w, const char *text, const WebStyle *style) {
+    i32 pad = (style->has_bg || style->glass) ? style->padding : 0;
+    i32 box_w = style->width > 0 && style->width < max_w ? style->width : max_w;
+    i32 text_w = box_w - pad * 2;
+    i32 char_w = 6 * (i32)style->scale;
+    i32 chars = text_w > char_w ? text_w / char_w : 12;
+    i32 line_h = 12 * (i32)style->scale + 5;
+    i32 len = (i32)strlen(text);
+    i32 lines = len > 0 ? (len + chars - 1) / chars : 1;
+    if (lines > 8) {
+        lines = 8;
+    }
+    i32 box_h = style->height > 0 ? style->height : lines * line_h + pad * 2;
+    if (style->glass) {
+        gfx_liquid_glass_rect(x, y, box_w, box_h, style->radius);
+    } else if (style->has_bg) {
+        gfx_fill_round_rect_plain_alpha(x, y, box_w, box_h, style->radius, style->bg, 225);
+    }
+    i32 offset = 0;
+    for (i32 line = 0; line < lines && text[offset]; line++) {
+        char chunk[96];
+        i32 used = 0;
+        while (text[offset] && used < chars && used + 1 < (i32)sizeof(chunk)) {
+            chunk[used++] = text[offset++];
+        }
+        chunk[used] = 0;
+        gfx_draw_text(x + pad, y + pad + line * line_h, chunk, style->color, style->scale);
+    }
+    return box_h;
+}
+
+static void draw_plain_response(i32 panel_x, i32 panel_y, i32 panel_w, i32 panel_h, LiqueiaTab *tab) {
+    gfx_fill_round_rect_plain_alpha(panel_x, panel_y, panel_w, panel_h, 24, RGB(24, 25, 32), 255);
+    gfx_draw_text(panel_x + 28, panel_y + 24, tab->response.status == 200 ? "Page loaded" : "Request failed", RGB(246, 238, 222), 2);
+    gfx_draw_text(panel_x + 28, panel_y + 56, tab->mime, RGB(216, 170, 88), 1);
     const char *line = tab->display_text;
-    i32 row = 0;
-    while (*line && row < 9) {
-        char text[72];
+    for (i32 row = 0; *line && row < 12; row++) {
+        char text[90];
         size_t used = 0;
         while (line[used] && line[used] != '\n' && used + 1 < sizeof(text)) {
             text[used] = line[used];
@@ -930,13 +954,148 @@ static void draw_web_page(i32 x, i32 y, i32 width, i32 height) {
         }
         text[used] = 0;
         if (text[0]) {
-            gfx_draw_text(x + 52, y + 280 + row * 22, text, RGB(184, 184, 192), 1);
-            row++;
+            gfx_draw_text(panel_x + 28, panel_y + 94 + row * 22, text, RGB(205, 205, 212), 1);
         }
         line += used;
         if (*line == '\n') {
             line++;
         }
+    }
+}
+
+static void draw_html_response(i32 panel_x, i32 panel_y, i32 panel_w, i32 panel_h, LiqueiaTab *tab) {
+    const char *html = tab->body;
+    WebStyle body = { RGB(226, 232, 240), RGB(17, 24, 39), true, false, 24, 10, 6, 0, 0, 1 };
+    web_apply_embedded_css(html, "body", &body);
+    const char *body_tag = find_after_ci(html, "<body");
+    if (*body_tag) {
+        char tag[220];
+        size_t used = 0;
+        while (*body_tag && *body_tag != '>' && used + 1 < sizeof(tag)) {
+            tag[used++] = *body_tag++;
+        }
+        tag[used] = 0;
+        char style_attr[180];
+        if (copy_attr(tag, "style", style_attr, sizeof(style_attr))) {
+            web_apply_declarations(&body, style_attr);
+        }
+    }
+
+    gfx_fill_round_rect_plain_alpha(panel_x, panel_y, panel_w, panel_h, body.radius, body.bg, 238);
+    gfx_set_clip(panel_x, panel_y, panel_w, panel_h);
+    WebStyle stack[6];
+    i32 sp = 0;
+    WebStyle current = body;
+    i32 cursor_y = panel_y + 24;
+    i32 content_x = panel_x + 28;
+    i32 content_w = panel_w - 56;
+    const char *p = html;
+    while (*p && cursor_y < panel_y + panel_h - 24) {
+        if (starts_with_ci(p, "<script") || starts_with_ci(p, "<style") || starts_with_ci(p, "<svg")) {
+            p = find_after_ci(p, starts_with_ci(p, "<svg") ? "</svg>" : (starts_with_ci(p, "<style") ? "</style>" : "</script>"));
+            continue;
+        }
+        if (*p == '<') {
+            char tag[240];
+            size_t used = 0;
+            const char *q = p;
+            while (*q && *q != '>' && used + 1 < sizeof(tag)) {
+                tag[used++] = *q++;
+            }
+            tag[used] = 0;
+            p = *q == '>' ? q + 1 : q;
+            if (tag[1] == '/') {
+                if (sp > 0) {
+                    current = stack[--sp];
+                }
+                cursor_y += 2;
+                continue;
+            }
+            char name[18];
+            copy_tag_name(tag, name, sizeof(name));
+            if (!name[0] || starts_with_ci(name, "meta") || starts_with_ci(name, "link")) {
+                continue;
+            }
+            if (starts_with_ci(name, "br")) {
+                cursor_y += 18;
+                continue;
+            }
+            WebStyle next;
+            web_default_style(name, &next, current.color);
+            web_apply_embedded_css(html, name, &next);
+            char class_attr[32];
+            if (copy_attr(tag, "class", class_attr, sizeof(class_attr))) {
+                char selector[36] = ".";
+                append_text(selector, sizeof(selector), class_attr);
+                web_apply_embedded_css(html, selector, &next);
+            }
+            char style_attr[180];
+            if (copy_attr(tag, "style", style_attr, sizeof(style_attr))) {
+                web_apply_declarations(&next, style_attr);
+            }
+            if (web_block_tag(name)) {
+                cursor_y += next.margin;
+            }
+            if ((next.glass || next.has_bg) && next.height > 0) {
+                i32 bw = next.width > 0 && next.width < content_w ? next.width : content_w;
+                i32 bx = content_x + (content_w - bw) / 2;
+                if (next.glass) {
+                    gfx_liquid_glass_rect(bx, cursor_y, bw, next.height, next.radius);
+                } else {
+                    gfx_fill_round_rect_plain_alpha(bx, cursor_y, bw, next.height, next.radius, next.bg, 225);
+                }
+                cursor_y += next.height + next.margin;
+            }
+            if (sp < (i32)(sizeof(stack) / sizeof(stack[0]))) {
+                stack[sp++] = current;
+            }
+            current = next;
+            continue;
+        }
+
+        char text[220];
+        size_t used = 0;
+        bool last_space = false;
+        while (*p && *p != '<' && used + 1 < sizeof(text)) {
+            if (*p == '&') {
+                append_entity_char(text, sizeof(text), &used, &p);
+                last_space = false;
+                continue;
+            }
+            char ch = *p++;
+            if (ch == '\r' || ch == '\n' || ch == '\t') {
+                ch = ' ';
+            }
+            if (ch == ' ') {
+                if (last_space || used == 0) {
+                    continue;
+                }
+                last_space = true;
+            } else {
+                last_space = false;
+            }
+            text[used++] = ch;
+        }
+        text[used] = 0;
+        char trimmed[220];
+        copy_trimmed(text, trimmed, sizeof(trimmed));
+        if (trimmed[0] && strlen(trimmed) > 1) {
+            cursor_y += draw_web_text(content_x, cursor_y, content_w, trimmed, &current) + current.margin;
+        }
+    }
+    gfx_clear_clip();
+}
+
+static void draw_web_page(i32 x, i32 y, i32 width, i32 height) {
+    LiqueiaTab *tab = &tabs[active_tab];
+    i32 panel_x = x + 24;
+    i32 panel_y = y + 152;
+    i32 panel_w = width - 48;
+    i32 panel_h = height - 172;
+    if (starts_with(tab->mime, "text/html")) {
+        draw_html_response(panel_x, panel_y, panel_w, panel_h, tab);
+    } else {
+        draw_plain_response(panel_x, panel_y, panel_w, panel_h, tab);
     }
 }
 

@@ -49,7 +49,7 @@ while IFS= read -r file; do
     "$clang" \
         -target x86_64-unknown-none-elf \
         -std=c11 \
-        -O2 \
+        -Os \
         -ffreestanding \
         -fno-builtin \
         -fno-stack-protector \

@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 import argparse
-import html
-import json
-import re
 import socket
 import threading
 import urllib.parse
@@ -10,113 +7,26 @@ import urllib.request
 
 
 MAX_FETCH_BYTES = 2 * 1024 * 1024
-MAX_REPLY_BYTES = 28 * 1024
+MAX_REPLY_BYTES = 16 * 1024
 
 
-def html_title(text):
-    match = re.search(r"(?is)<title[^>]*>(.*?)</title>", text)
-    if not match:
-        return ""
-    return html.unescape(re.sub(r"(?is)<[^>]+>", " ", match.group(1))).strip()
+def safe_content_type(content_type):
+    content_type = (content_type or "text/plain").split(";", 1)[0].strip().lower()
+    if content_type in {
+        "text/html",
+        "text/plain",
+        "text/css",
+        "application/xhtml+xml",
+        "application/json",
+    }:
+        return "text/html" if content_type == "application/xhtml+xml" else content_type
+    return "text/plain"
 
 
-def clean_line(text):
-    return " ".join(html.unescape(text).split())
-
-
-def html_to_text(body, content_type):
-    text = body.decode("utf-8", "replace")
-    if "html" not in content_type.lower():
-        return text[:MAX_REPLY_BYTES]
-
-    title = html_title(text)
-    text = re.sub(r"(?is)<script.*?</script>", " ", text)
-    text = re.sub(r"(?is)<style.*?</style>", " ", text)
-    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
-    text = re.sub(r"(?i)</(p|div|li|h[1-6]|tr)>", "\n", text)
-    text = re.sub(r"(?is)<[^>]+>", " ", text)
-    lines = []
-    seen = set()
-    for raw in text.splitlines():
-        line = clean_line(raw)
-        if len(line) < 3 or line in seen:
-            continue
-        seen.add(line)
-        lines.append(line)
-        if len("\n".join(lines)) >= MAX_REPLY_BYTES:
-            break
-    if title:
-        lines.insert(0, title)
-    return "\n".join(lines)[:MAX_REPLY_BYTES]
-
-
-def youtube_text(url, body):
-    text = body.decode("utf-8", "replace")
-    title = html_title(text) or "YouTube"
-    lines = [
-        "YouTube",
-        f"Fetched live from {url}",
-        f"Page title: {title}",
-        "",
-        "Real HTTPS/TLS fetch completed through LiquidOS WebBridge.",
-    ]
-
-    candidates = []
-    patterns = [
-        r'"videoRenderer"\s*:\s*\{.*?"title"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"([^"]+)"',
-        r'"reelItemRenderer"\s*:\s*\{.*?"headline"\s*:\s*\{"simpleText"\s*:\s*"([^"]+)"',
-        r'"title"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"([^"]{4,90})"',
-        r'"simpleText"\s*:\s*"([^"]{4,90})"',
-    ]
-    for pattern in patterns:
-        for match in re.finditer(pattern, text):
-            try:
-                value = json.loads(f'"{match.group(1)}"')
-            except Exception:
-                value = match.group(1)
-            value = clean_line(value)
-            if not value or value in candidates:
-                continue
-            lowered = value.lower()
-            if any(skip in lowered for skip in ["youtube", "cookies", "sign in", "google llc", "privacy", "terms"]):
-                continue
-            candidates.append(value)
-            if len(candidates) >= 10:
-                break
-        if len(candidates) >= 6:
-            break
-
-    if candidates:
-        lines += ["", "Live page items:"]
-        lines += [f"- {item}" for item in candidates[:10]]
-    else:
-        lines += [
-            "",
-            "YouTube returned its app shell. Native video playback still needs JavaScript, DOM/CSS, codecs, and audio output.",
-        ]
-    return "\n".join(lines)
-
-
-def google_text(url, body):
-    text = html_to_text(body, "text/html")
-    return f"Google\nFetched live from {url}\n\n{text}"
-
-
-def bridge_page(url, status, content_type, body):
-    host = urllib.parse.urlparse(url).netloc.lower()
-    if "youtube.com" in host or "youtu.be" in host:
-        rendered = youtube_text(url, body)
-    elif "google." in host:
-        rendered = google_text(url, body)
-    else:
-        rendered = f"Fetched live from {url}\nHTTP {status}\n\n{html_to_text(body, content_type)}"
-    return rendered.encode("utf-8", "replace")[:MAX_REPLY_BYTES]
-
-
-def http_response(status, reason, payload):
+def http_response(status, reason, payload, content_type="text/plain"):
     headers = (
         f"HTTP/1.1 {status} {reason}\r\n"
-        "Content-Type: text/plain; charset=utf-8\r\n"
+        f"Content-Type: {content_type}; charset=utf-8\r\n"
         f"Content-Length: {len(payload)}\r\n"
         "Connection: close\r\n"
         "\r\n"
@@ -136,10 +46,10 @@ def fetch_payload(target):
         )
         with urllib.request.urlopen(request, timeout=18) as response:
             body = response.read(MAX_FETCH_BYTES)
-            content_type = response.headers.get("content-type", "text/plain")
-            return bridge_page(response.geturl(), response.status, content_type, body)
+            content_type = safe_content_type(response.headers.get("content-type", "text/plain"))
+            return body[:MAX_REPLY_BYTES], content_type
     except Exception as exc:
-        return f"LiquidOS WebBridge could not load:\n{target}\n\n{exc}".encode("utf-8", "replace")
+        return f"LiquidOS WebBridge could not load:\n{target}\n\n{exc}".encode("utf-8", "replace"), "text/plain"
 
 
 def handle_request(data):
@@ -156,7 +66,8 @@ def handle_request(data):
     if not target.startswith(("https://", "http://")):
         return http_response(400, "Bad Request", b"Missing absolute url")
 
-    return http_response(200, "OK", fetch_payload(target))
+    payload, content_type = fetch_payload(target)
+    return http_response(200, "OK", payload, content_type)
 
 
 def read_http_request(read):

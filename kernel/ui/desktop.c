@@ -2291,7 +2291,8 @@ static void draw_background(void) {
 }
 
 static void draw_dock_glass_capsule(i32 x, i32 y, i32 width, i32 height, i32 radius) {
-    draw_liquid_reference_glass(x, y, width, height, radius, false);
+    gfx_liquid_filter_glass_rect(x, y, width, height, radius);
+    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 54);
 }
 
 static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {

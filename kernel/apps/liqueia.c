@@ -923,7 +923,7 @@ static i32 draw_web_text(i32 x, i32 y, i32 max_w, const char *text, const WebSty
     }
     i32 box_h = style->height > 0 ? style->height : lines * line_h + pad * 2;
     if (style->glass) {
-        gfx_liquid_glass_rect(x, y, box_w, box_h, style->radius);
+        gfx_liquid_filter_glass_rect(x, y, box_w, box_h, style->radius);
     } else if (style->has_bg) {
         gfx_fill_round_rect_plain_alpha(x, y, box_w, box_h, style->radius, style->bg, 225);
     }
@@ -1040,7 +1040,7 @@ static void draw_html_response(i32 panel_x, i32 panel_y, i32 panel_w, i32 panel_
                 i32 bw = next.width > 0 && next.width < content_w ? next.width : content_w;
                 i32 bx = content_x + (content_w - bw) / 2;
                 if (next.glass) {
-                    gfx_liquid_glass_rect(bx, cursor_y, bw, next.height, next.radius);
+                    gfx_liquid_filter_glass_rect(bx, cursor_y, bw, next.height, next.radius);
                 } else {
                     gfx_fill_round_rect_plain_alpha(bx, cursor_y, bw, next.height, next.radius, next.bg, 225);
                 }

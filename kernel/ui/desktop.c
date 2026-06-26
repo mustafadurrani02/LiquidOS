@@ -369,6 +369,14 @@ static i32 dock_clock_w(void) {
     return dock_scale_value(92);
 }
 
+static i32 dock_reference_h(void) {
+    return dock_scale_value(gfx_width() < 900 ? 86 : 105);
+}
+
+static i32 dock_reference_radius(void) {
+    return dock_scale_value(gfx_width() < 900 ? 33 : 40);
+}
+
 static i32 taskbar_x(void) {
     i32 screen_w = (i32)gfx_width();
     i32 width = taskbar_w();
@@ -384,13 +392,15 @@ static i32 taskbar_w(void) {
     i32 count = dock_app_count();
     i32 tile_size = dock_tile_size();
     i32 gap = dock_gap();
-    i32 width = gap * (count + 2) + dock_clock_w() + tile_size * count;
+    i32 icon_gap_count = count > 0 ? count - 1 : 0;
+    i32 content_width = dock_clock_w() + gap + tile_size * count + gap * icon_gap_count;
+    i32 width = content_width + gap * 2;
     i32 max_width = screen_w - 32;
     return width > max_width ? max_width : width;
 }
 
 static i32 taskbar_h(void) {
-    return dock_tile_size() + dock_gap() * 2;
+    return dock_reference_h();
 }
 
 static void dock_grip_rect(const TaskbarLayout *bar, i32 *x, i32 *y, i32 *size) {
@@ -402,6 +412,7 @@ static void dock_grip_rect(const TaskbarLayout *bar, i32 *x, i32 *y, i32 *size) 
 
 static void taskbar_layout(TaskbarLayout *layout) {
     i32 gap = dock_gap();
+    i32 count = dock_app_count();
 
     layout->x = taskbar_x();
     layout->y = taskbar_y();
@@ -411,10 +422,16 @@ static void taskbar_layout(TaskbarLayout *layout) {
     layout->slot_w = dock_tile_size();
     layout->slot_h = dock_tile_size();
     layout->slot_step = layout->slot_w + gap;
-    layout->slots_available = dock_app_count();
-    layout->clock_x = layout->x + gap;
-    layout->clock_y = layout->y + (layout->h - layout->slot_h) / 2;
+    layout->slots_available = count;
     layout->clock_w = dock_clock_w();
+    i32 icon_gap_count = count > 0 ? count - 1 : 0;
+    i32 group_w = layout->clock_w + gap + layout->slot_w * count + gap * icon_gap_count;
+    i32 content_pad = (layout->w - group_w) / 2;
+    if (content_pad < gap) {
+        content_pad = gap;
+    }
+    layout->clock_x = layout->x + content_pad;
+    layout->clock_y = layout->y + (layout->h - layout->slot_h) / 2;
     layout->clock_h = layout->slot_h;
     layout->search_w = 0;
     layout->search_h = 0;
@@ -2291,8 +2308,8 @@ static void draw_background(void) {
 }
 
 static void draw_dock_glass_capsule(i32 x, i32 y, i32 width, i32 height, i32 radius) {
+    gfx_fill_round_rect_alpha(x, y + dock_scale_value(4), width, height, radius, RGB(0, 0, 0), 16);
     gfx_liquid_filter_glass_rect(x, y, width, height, radius);
-    gfx_draw_round_rect_alpha(x, y, width, height, radius, RGB(246, 252, 255), 54);
 }
 
 static i32 dock_child_radius(i32 child_size, i32 dock_height, i32 dock_radius) {
@@ -2453,8 +2470,7 @@ static void draw_dock_resize_grip(const TaskbarLayout *bar) {
     i32 grip_y;
     i32 grip_size;
     dock_grip_rect(bar, &grip_x, &grip_y, &grip_size);
-    i32 compact = gfx_width() < 900 ? 1 : 0;
-    i32 dock_radius = dock_scale_value(compact ? 27 : 32);
+    i32 dock_radius = dock_reference_radius();
     i32 grip_w = grip_size + dock_scale_value(9);
     i32 grip_h = grip_size;
     i32 grip_radius = dock_child_radius(grip_h, bar->h, dock_radius);
@@ -3388,7 +3404,7 @@ static void draw_taskbar(void) {
     TaskbarLayout bar;
     taskbar_layout(&bar);
     i32 compact = gfx_width() < 900 ? 1 : 0;
-    i32 radius = dock_scale_value(compact ? 27 : 32);
+    i32 radius = dock_reference_radius();
     i32 tile_size = dock_tile_size();
     i32 child_radius = dock_child_radius(dock_scale_value(compact ? 48 : 54), bar.h, radius);
     i32 icon_size = tile_size - (compact ? 9 : 10);

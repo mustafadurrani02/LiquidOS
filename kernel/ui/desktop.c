@@ -2308,7 +2308,6 @@ static void draw_background(void) {
 }
 
 static void draw_dock_glass_capsule(i32 x, i32 y, i32 width, i32 height, i32 radius) {
-    gfx_fill_round_rect_alpha(x, y + dock_scale_value(4), width, height, radius, RGB(0, 0, 0), 16);
     gfx_liquid_filter_glass_rect(x, y, width, height, radius);
 }
 
@@ -2456,13 +2455,6 @@ static void draw_dock_clock(const TaskbarLayout *bar) {
     u32 date_scale = (u32)((scale * 50 + 50) / 100);
     gfx_draw_text_percent(text_x, text_y, clock_text, RGB(248, 251, 255), time_scale);
     gfx_draw_text_percent(text_x, text_y + dock_scale_value(34), date_text, RGB(248, 251, 255), date_scale);
-}
-
-static void draw_dock_divider(const TaskbarLayout *bar) {
-    i32 x = bar->clock_x + bar->clock_w + dock_gap() / 2;
-    i32 y = bar->y + dock_gap();
-    i32 height = bar->h - dock_gap() * 2;
-    gfx_fill_round_rect_plain_alpha(x, y, 1, height, 0, RGB(246, 252, 255), 54);
 }
 
 static void draw_dock_resize_grip(const TaskbarLayout *bar) {
@@ -3411,7 +3403,6 @@ static void draw_taskbar(void) {
 
     draw_dock_glass_capsule(bar.x, bar.y, bar.w, bar.h, radius);
     draw_dock_clock(&bar);
-    draw_dock_divider(&bar);
 
     for (i32 i = 0; i < bar.slots_available; i++) {
         const DockApp *app = &dock_apps[i];

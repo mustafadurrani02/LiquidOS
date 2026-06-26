@@ -643,8 +643,8 @@ void gfx_liquid_filter_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radiu
             if (side_band < 6) {
                 side_band = 6;
             }
-            if (lx < side_band || right < side_band) {
-                i32 distance = lx < side_band ? lx : right;
+            if (right < side_band) {
+                i32 distance = right;
                 u8 side = (u8)(((side_band - distance) * 16 * coverage) / (side_band * 255));
                 put_pixel(px, py, blend(get_pixel(px, py), RGB(235, 249, 255), side));
             }

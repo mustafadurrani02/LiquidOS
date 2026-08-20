@@ -1,14 +1,20 @@
 #include <liquidos/input.h>
+#include <liquidos/gdt.h>
 #include <liquidos/interrupts.h>
 #include <liquidos/io.h>
 #include <liquidos/keyboard.h>
 #include <liquidos/lib.h>
 #include <liquidos/mouse.h>
+#include <liquidos/process.h>
+#include <liquidos/scheduler.h>
+#include <liquidos/syscall.h>
+#include <liquidos/usermode.h>
+#include <liquidos/vmm.h>
 #include <liquidos/debug.h>
 #include <liquidos/serial.h>
 
 #define IDT_ENTRIES 256
-#define KERNEL_CODE_SELECTOR 0x08
+#define KERNEL_CODE_SELECTOR GDT_KERNEL_CODE
 
 #define PIC1_COMMAND 0x20
 #define PIC1_DATA 0x21
@@ -40,16 +46,58 @@ typedef struct IdtPointer {
 } __attribute__((packed)) IdtPointer;
 
 extern void *isr_stub_table[];
+extern void isr_stub_128(void);
 
 static IdtEntry idt[IDT_ENTRIES];
 static volatile u64 ticks = 0;
 static u16 pic_mask = 0xFFFF;
+
+static u64 read_cr2(void) {
+    u64 value;
+    __asm__ volatile("mov %%cr2, %0" : "=r"(value));
+    return value;
+}
+
+static bool frame_from_user(const InterruptFrame *frame) {
+    return frame && ((frame->cs & 3) == 3);
+}
+
+static void stop_crashed_user(InterruptFrame *frame, u64 fault_address) {
+    serial_write("User process crashed vector ");
+    char number[24];
+    u64_to_dec(frame->vector, number, sizeof(number));
+    serial_write(number);
+    serial_write(" error ");
+    u64_to_hex(frame->error_code, number, sizeof(number));
+    serial_write(number);
+    serial_write(" rip ");
+    serial_write_hex(frame->rip);
+    if (frame->vector == 14) {
+        serial_write(" cr2 ");
+        serial_write_hex(fault_address);
+    }
+    serial_write_line("");
+
+    process_crash_current(frame->vector, frame->error_code, frame->rip, fault_address);
+    vmm_switch(vmm_kernel_space());
+    user_return_to_kernel_now();
+}
 
 static void idt_set_gate(u8 vector, u64 handler) {
     idt[vector].offset_low = (u16)(handler & 0xFFFF);
     idt[vector].selector = KERNEL_CODE_SELECTOR;
     idt[vector].ist = 0;
     idt[vector].attributes = 0x8E;
+    idt[vector].offset_mid = (u16)((handler >> 16) & 0xFFFF);
+    idt[vector].offset_high = (u32)((handler >> 32) & 0xFFFFFFFF);
+    idt[vector].zero = 0;
+}
+
+static void idt_set_trap_gate(u8 vector, u64 handler, u8 dpl) {
+    idt[vector].offset_low = (u16)(handler & 0xFFFF);
+    idt[vector].selector = KERNEL_CODE_SELECTOR;
+    idt[vector].ist = 0;
+    idt[vector].attributes = (u8)(0x8F | ((dpl & 3) << 5));
     idt[vector].offset_mid = (u16)((handler >> 16) & 0xFFFF);
     idt[vector].offset_high = (u32)((handler >> 32) & 0xFFFFFFFF);
     idt[vector].zero = 0;
@@ -146,6 +194,7 @@ void interrupts_init(void) {
     for (u8 i = 0; i < 48; i++) {
         idt_set_gate(i, (u64)(uintptr_t)isr_stub_table[i]);
     }
+    idt_set_trap_gate(0x80, (u64)(uintptr_t)isr_stub_128, 3);
 
     IdtPointer pointer;
     pointer.limit = (u16)(sizeof(idt) - 1);
@@ -161,6 +210,12 @@ void interrupts_init(void) {
 
 void interrupt_dispatch(InterruptFrame *frame) {
     u64 vector = frame->vector;
+    process_save_interrupt_frame(frame);
+
+    if (vector == 0x80) {
+        frame->rax = syscall_dispatch(frame);
+        return;
+    }
 
     if (vector == IRQ_BASE) {
         ticks++;
@@ -174,6 +229,11 @@ void interrupt_dispatch(InterruptFrame *frame) {
         event.middle_down = false;
         input_queue_push(&event);
         pic_eoi(0);
+        if (frame_from_user(frame) && process_preempt_current()) {
+            vmm_switch(vmm_kernel_space());
+            user_return_to_kernel_now();
+        }
+        scheduler_tick();
         return;
     }
 
@@ -204,9 +264,28 @@ void interrupt_dispatch(InterruptFrame *frame) {
         return;
     }
 
-    serial_write("Unhandled exception vector ");
+    if (vector == 14) {
+        u64 fault_address = read_cr2();
+        vmm_report_page_fault(fault_address, frame->error_code, frame->rip);
+        if (frame_from_user(frame)) {
+            stop_crashed_user(frame, fault_address);
+        }
+        panic("Page fault");
+    }
+
+    if (vector < 32 && frame_from_user(frame)) {
+        stop_crashed_user(frame, 0);
+    }
+
+    serial_write("CPU exception vector ");
     char number[24];
     u64_to_dec(vector, number, sizeof(number));
-    serial_write_line(number);
-    panic("Unhandled CPU exception");
+    serial_write(number);
+    serial_write(" error ");
+    u64_to_hex(frame->error_code, number, sizeof(number));
+    serial_write(number);
+    serial_write(" rip ");
+    serial_write_hex(frame->rip);
+    serial_write_line("");
+    panic("CPU exception");
 }

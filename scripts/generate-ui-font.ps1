@@ -15,6 +15,7 @@ if (-not $FontPath) {
     }
     else {
         $candidates = @(
+            (Join-Path $root "assets\fonts\Manrope-VariableFont_wght.ttf"),
             (Join-Path $root "assets\fonts\HelveticaNeueMedium.otf"),
             (Join-Path $root "assets\fonts\HelveticaNeueRoman.otf"),
             (Join-Path $root "assets\fonts\WorkSans[wght].ttf")
@@ -30,7 +31,7 @@ if (-not $FontPath) {
 
 if (-not $FontPath -or -not (Test-Path $FontPath)) {
     if (-not $Quiet) {
-        Write-Host "UI font not found. Put HelveticaNeueMedium.otf in assets\fonts or set LIQUIDOS_UI_FONT." -ForegroundColor Yellow
+        Write-Host "UI font not found. Put Manrope-VariableFont_wght.ttf in assets\fonts or set LIQUIDOS_UI_FONT." -ForegroundColor Yellow
     }
     exit 0
 }

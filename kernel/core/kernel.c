@@ -1,17 +1,30 @@
 #include <liquidos/boot.h>
 #include <liquidos/app.h>
+#include <liquidos/app_store.h>
+#include <liquidos/debug.h>
 #include <liquidos/disk.h>
 #include <liquidos/framebuffer.h>
+#include <liquidos/gdt.h>
 #include <liquidos/fs.h>
 #include <liquidos/gfx.h>
 #include <liquidos/input.h>
 #include <liquidos/interrupts.h>
 #include <liquidos/io.h>
 #include <liquidos/lib.h>
+#include <liquidos/loader.h>
+#include <liquidos/network.h>
 #include <liquidos/pmm.h>
+#include <liquidos/platform.h>
+#include <liquidos/process.h>
 #include <liquidos/ps2.h>
+#include <liquidos/scheduler.h>
 #include <liquidos/serial.h>
+#include <liquidos/syscall.h>
 #include <liquidos/ui.h>
+#include <liquidos/vmm.h>
+
+extern u8 kernel_stack_top;
+extern u8 user_trap_stack_top;
 
 static void vga_text_fallback(const char *message) {
     volatile u16 *vga = (volatile u16 *)0xB8000;
@@ -30,6 +43,24 @@ static void vga_text_fallback(const char *message) {
     }
 }
 
+static void log_framebuffer_mode(const Framebuffer *fb) {
+    char width[24];
+    char height[24];
+    char bpp[24];
+
+    u64_to_dec(fb->width, width, sizeof(width));
+    u64_to_dec(fb->height, height, sizeof(height));
+    u64_to_dec(fb->bpp, bpp, sizeof(bpp));
+
+    serial_write("Framebuffer: ");
+    serial_write(width);
+    serial_write("x");
+    serial_write(height);
+    serial_write("x");
+    serial_write(bpp);
+    serial_write_line("");
+}
+
 void kernel_main(const BootInfo *boot) {
     serial_init();
     serial_write_line("LiquidOS kernel entered long mode");
@@ -42,8 +73,17 @@ void kernel_main(const BootInfo *boot) {
     }
 
     pmm_init(boot);
+    gdt_init(&user_trap_stack_top);
+    vmm_init();
+    process_init();
+    scheduler_init();
+    syscall_init();
     disk_init();
     fs_init();
+    network_init();
+    platform_init();
+    loader_init();
+    app_store_init();
     app_init();
     input_queue_init();
     framebuffer_init(boot);
@@ -55,16 +95,20 @@ void kernel_main(const BootInfo *boot) {
             cpu_pause();
         }
     }
+    log_framebuffer_mode(framebuffer_get());
 
     ps2_init();
 
-    /*
-     * The interrupt foundation is kept in the tree, but IRQ delivery is not
-     * enabled yet. VirtualBox Guru Meditations point to a remaining bug in
-     * the early interrupt path, so the stable build uses the known-good
-     * polling loop until that path is debugged properly.
-     */
+    interrupts_init();
+    if (syscall_call0(SYS_GETPID) != scheduler_current_pid()) {
+        panic("Syscall gate self-test failed");
+    }
+    serial_write_line("Syscall gate self-test passed");
+    pit_init(100);
+    interrupts_enable_irq(0);
+
     ui_init(boot);
+    interrupts_enable();
     u64 software_ticks = 0;
 
     for (;;) {
@@ -78,9 +122,6 @@ void kernel_main(const BootInfo *boot) {
                 ui_update(pit_ticks());
             } else {
                 ui_handle_event(&event);
-                if (event.type == INPUT_EVENT_MOUSE) {
-                    ui_render();
-                }
             }
         }
 

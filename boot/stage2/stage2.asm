@@ -313,6 +313,9 @@ current_segment:        dw 0
 
 vbe_mode_candidates:
     dw 0x0160             ; VirtualBox custom mode 1: configured as 1920x1080x32
+    dw 0x0161             ; VirtualBox custom mode 2: configured as 1680x1050x32
+    dw 0x0162             ; VirtualBox custom mode 3: configured as 1440x900x32
+    dw 0x0163             ; VirtualBox custom mode 4: configured as 1280x800x32
     dw 0x0145             ; VirtualBox/Bochs 1280x1024x32 when available
     dw 0x011B             ; VBE 1280x1024, often 24 bpp
     dw 0x0144             ; VirtualBox/Bochs 1024x768x32

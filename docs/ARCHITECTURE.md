@@ -88,3 +88,24 @@ kernel/
 ```
 
 The first kernel will be monolithic. That means graphics, input, memory, and desktop code all live in one kernel address space. This is simpler, more stable for a first OS, and easier to expand gradually.
+
+## Desktop OS Services
+
+LiquidOS keeps early desktop services inside the kernel shell until the process
+model and userspace app framework are strong enough to host them separately.
+
+Current service boundaries:
+
+- Window manager state belongs to `kernel/ui/desktop.c`: each window tracks open,
+  minimized, maximized, restore geometry, focus, and z-order.
+- File operations go through LiquidFS APIs instead of UI-only state. The Files app
+  calls `fs_copy`, `fs_rename`, `fs_write`, and `fs_delete`, so operations persist
+  when disk-backed LiquidFS is available.
+- Notifications are shell-level records with a toast and history surface. This
+  gives Store, Files, Settings, and Control Center a shared notification path.
+- Task management uses the process table. Settings can inspect process state and
+  force-stop user processes through `process_kill`.
+
+These are intentionally small, working primitives. They are not yet separate
+daemons, but they create the contracts needed for a later userspace desktop
+environment.

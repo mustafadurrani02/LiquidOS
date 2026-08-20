@@ -1,6 +1,8 @@
 BITS 64
 
 GLOBAL kernel_entry
+GLOBAL kernel_stack_top
+GLOBAL user_trap_stack_top
 EXTERN kernel_main
 EXTERN __bss_start
 EXTERN __bss_end
@@ -31,8 +33,13 @@ kernel_entry:
     hlt
     jmp .halt
 
-SECTION .bss
+SECTION .stack nobits
 ALIGN 16
 kernel_stack_bottom:
     resb 65536
 kernel_stack_top:
+
+ALIGN 16
+user_trap_stack_bottom:
+    resb 65536
+user_trap_stack_top:

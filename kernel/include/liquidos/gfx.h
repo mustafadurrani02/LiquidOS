@@ -24,14 +24,21 @@ void gfx_fill_round_rect(i32 x, i32 y, i32 width, i32 height, i32 radius, Color 
 void gfx_fill_round_rect_plain_alpha(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color, u8 alpha);
 void gfx_fill_round_rect_alpha(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color, u8 alpha);
 void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius);
+void gfx_liquid_filter_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius);
+void gfx_liquid_glass_grip(i32 x, i32 y, i32 width, i32 height, i32 radius);
 void gfx_blur_round_rect(i32 x, i32 y, i32 width, i32 height, i32 radius);
+void gfx_refract_round_rect_edges(i32 x, i32 y, i32 width, i32 height, i32 radius, i32 strength);
+void gfx_draw_round_rect_alpha(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color, u8 alpha);
 void gfx_draw_round_rect(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color);
 void gfx_draw_rgb565_image_scaled(i32 x, i32 y, i32 width, i32 height, const u16 *pixels, u32 src_width, u32 src_height);
 void gfx_draw_argb8888_image_scaled(i32 x, i32 y, i32 width, i32 height, const u32 *pixels, u32 src_width, u32 src_height);
+void gfx_draw_argb8888_image_scaled_round(i32 x, i32 y, i32 width, i32 height, i32 radius,
+                                          const u32 *pixels, u32 src_width, u32 src_height);
 void gfx_prepare_wallpaper_rgb565(const u16 *pixels, u32 src_width, u32 src_height);
 void gfx_draw_wallpaper(void);
 void gfx_draw_char(i32 x, i32 y, char ch, Color color, u32 scale);
 void gfx_draw_text(i32 x, i32 y, const char *text, Color color, u32 scale);
+void gfx_draw_text_percent(i32 x, i32 y, const char *text, Color color, u32 percent);
 void gfx_draw_cursor(i32 x, i32 y);
 void gfx_save_scene(void);
 void gfx_restore_scene_rect(i32 x, i32 y, i32 width, i32 height);

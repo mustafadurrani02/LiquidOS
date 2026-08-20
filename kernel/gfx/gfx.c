@@ -1,5 +1,6 @@
 #include <liquidos/gfx.h>
 #include <liquidos/lib.h>
+#include "cursor_image.h"
 #include "ui_font.h"
 
 void font_get_rows(char ch, u8 rows[7]);
@@ -39,6 +40,35 @@ static Color get_pixel(i32 x, i32 y) {
     return back_buffer[(u32)y * active_fb->width + (u32)x];
 }
 
+static Color get_scene_pixel(i32 x, i32 y) {
+    if (!gfx_ready || x < 0 || y < 0) {
+        return 0;
+    }
+    if ((u32)x >= active_fb->width || (u32)y >= active_fb->height) {
+        return 0;
+    }
+    return scene_buffer[(u32)y * active_fb->width + (u32)x];
+}
+
+static Color blur_scene_pixel(i32 x, i32 y) {
+    u32 r = 0;
+    u32 g = 0;
+    u32 b = 0;
+    u32 count = 0;
+
+    for (i32 oy = -3; oy <= 3; oy++) {
+        for (i32 ox = -3; ox <= 3; ox++) {
+            Color c = get_scene_pixel(x + ox, y + oy);
+            r += (c >> 16) & 0xFF;
+            g += (c >> 8) & 0xFF;
+            b += c & 0xFF;
+            count++;
+        }
+    }
+
+    return RGB(r / count, g / count, b / count);
+}
+
 static Color blend(Color bottom, Color top, u8 alpha) {
     u32 inv = 255 - alpha;
     u32 br = (bottom >> 16) & 0xFF;
@@ -67,6 +97,30 @@ static Color lerp_color(Color a, Color b, u32 amount) {
         lerp_u8((u8)((a >> 8) & 0xFF), (u8)((b >> 8) & 0xFF), amount),
         lerp_u8((u8)(a & 0xFF), (u8)(b & 0xFF), amount)
     );
+}
+
+static u8 clamp_u8(i32 value) {
+    if (value < 0) {
+        return 0;
+    }
+    return value > 255 ? 255 : (u8)value;
+}
+
+static i32 min_i32(i32 a, i32 b) {
+    return a < b ? a : b;
+}
+
+static Color adjust_brightness_saturation(Color color, i32 bright_percent, i32 sat_percent) {
+    i32 r = (i32)((color >> 16) & 0xFF);
+    i32 g = (i32)((color >> 8) & 0xFF);
+    i32 b = (i32)(color & 0xFF);
+    i32 luma = (r * 30 + g * 59 + b * 11) / 100;
+    r = luma + ((r - luma) * sat_percent) / 100;
+    g = luma + ((g - luma) * sat_percent) / 100;
+    b = luma + ((b - luma) * sat_percent) / 100;
+    return RGB(clamp_u8((r * bright_percent) / 100),
+               clamp_u8((g * bright_percent) / 100),
+               clamp_u8((b * bright_percent) / 100));
 }
 
 static bool inside_round_rect(i32 px, i32 py, i32 x, i32 y, i32 width, i32 height, i32 radius) {
@@ -377,7 +431,8 @@ void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
     }
 
     gfx_blur_round_rect(x, y, width, height, radius);
-    gfx_blur_round_rect(x + 2, y + 2, width - 4, height - 4, radius - 2);
+    gfx_blur_round_rect(x + 1, y + 1, width - 2, height - 2, radius - 1);
+    gfx_refract_round_rect_edges(x, y, width, height, radius, 4);
 
     for (i32 py = y; py < y + height; py++) {
         for (i32 px = x; px < x + width; px++) {
@@ -390,56 +445,329 @@ void gfx_liquid_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
             i32 edge_x = px - x;
             i32 from_right = x + width - 1 - px;
             i32 edge = edge_x < from_right ? edge_x : from_right;
+            i32 from_bottom = y + height - 1 - py;
 
-            Color color = RGB(21, 29, 46);
-            u8 alpha = 58;
-            if (local_y < height / 3) {
-                color = RGB(222, 239, 252);
-                alpha = 44;
+            Color source = get_pixel(px, py);
+            Color color = lerp_color(source, RGB(255, 255, 255), 13107);
+            u8 alpha = 38;
+            if (edge_x < width / 4) {
+                color = lerp_color(get_pixel(x - 8, py), RGB(255, 255, 255), 16384);
+                alpha = 48;
+            } else if (edge_x > (width * 3) / 4) {
+                color = lerp_color(get_pixel(x + width + 8, py), RGB(255, 255, 255), 9830);
+                alpha = 40;
+            }
+            if (local_y < height / 4) {
+                color = lerp_color(get_pixel(px, y - 8), RGB(255, 255, 255), 19660);
+                alpha = (u8)(alpha + 8);
             } else if (local_y > height - height / 4) {
-                color = RGB(4, 9, 18);
-                alpha = 42;
+                color = lerp_color(get_pixel(px, y + height + 8), RGB(255, 255, 255), 6553);
+                alpha = (u8)(alpha + 2);
             }
 
             u8 effective = (u8)(((u32)alpha * coverage) / 255);
             put_pixel(px, py, blend(get_pixel(px, py), color, effective));
 
-            if (local_y < 3) {
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((120 * coverage) / 255)));
+            if (from_bottom < 12) {
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(0, 0, 42), (u8)((22 * coverage) / 255)));
             }
-            if (local_y > height - 11) {
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(0, 0, 0), (u8)((26 * coverage) / 255)));
+            if (edge < 3) {
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(218, 246, 255), (u8)(((3 - edge) * 42 * coverage) / 255)));
             }
-            if (edge < 2) {
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(210, 238, 255), (u8)((70 * coverage) / 255)));
-            }
-
-            i32 from_bottom = y + height - 1 - py;
-            bool near_edge = local_y < 4 || from_bottom < 4 || edge < 4;
+            bool near_edge = local_y < 5 || from_bottom < 5 || edge < 5;
             if (near_edge) {
                 Color ambient = get_pixel(px, py);
-                if (local_y < 4) {
+                if (local_y < 5) {
                     ambient = get_pixel(px, y - 7);
-                } else if (from_bottom < 4) {
+                } else if (from_bottom < 5) {
                     ambient = get_pixel(px, y + height + 6);
-                } else if (edge_x < 4) {
+                } else if (edge_x < 5) {
                     ambient = get_pixel(x - 7, py);
-                } else if (from_right < 4) {
+                } else if (from_right < 5) {
                     ambient = get_pixel(x + width + 6, py);
                 }
 
-                u8 rim = (u8)(((4 - (local_y < 4 ? local_y : (from_bottom < 4 ? from_bottom : edge))) * 42 * coverage) / 255);
+                i32 rim_distance = local_y < 5 ? local_y : (from_bottom < 5 ? from_bottom : edge);
+                u8 rim = (u8)(((5 - rim_distance) * 18 * coverage) / 255);
                 put_pixel(px, py, blend(get_pixel(px, py), ambient, rim));
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(235, 250, 255), (u8)((rim * 3) / 5)));
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(238, 252, 255), (u8)((rim * 4) / 5)));
             }
 
-            u8 h1 = liquid_highlight_alpha(px, py, x + width / 8, y + 4, 54, 5, 92);
-            u8 h2 = liquid_highlight_alpha(px, py, x + width / 2, y + 5, 86, 6, 58);
-            u8 h3 = liquid_highlight_alpha(px, py, x + width - width / 8, y + 4, 62, 5, 76);
+            if (radius > 10 && edge < radius && (local_y < radius || from_bottom < radius)) {
+                i32 cx = edge_x < radius ? radius : width - radius - 1;
+                i32 cy = local_y < radius ? radius : height - radius - 1;
+                i32 dx = edge_x - cx;
+                i32 dy = local_y - cy;
+                i32 delta = dx * dx + dy * dy - radius * radius;
+                if (delta < 0) {
+                    delta = -delta;
+                }
+                i32 band = radius * 3;
+                if (delta < band) {
+                    u8 arc = (u8)(((band - delta) * 68 * coverage) / (band * 255));
+                    put_pixel(px, py, blend(get_pixel(px, py), RGB(244, 252, 255), arc));
+                }
+            }
+
+            i32 small = width < 180 || height < 46;
+            u8 h1 = liquid_highlight_alpha(px, py, x + width / 13, y + height / 5,
+                                           small ? width / 5 : width / 7,
+                                           small ? height / 3 : height / 2, 96);
+            u8 h2 = liquid_highlight_alpha(px, py, x + (width * 79) / 100, y + height / 3,
+                                           small ? width / 7 : width / 10,
+                                           small ? height / 3 : (height * 7) / 10, 74);
+            u8 h3 = liquid_highlight_alpha(px, py, x + width / 2, y + 3,
+                                           small ? width / 3 : (width * 3) / 10,
+                                           3, 16);
             u8 glow = h1 > h2 ? h1 : h2;
             glow = glow > h3 ? glow : h3;
             if (glow) {
-                put_pixel(px, py, blend(get_pixel(px, py), RGB(167, 245, 255), (u8)(((u32)glow * coverage) / 255)));
+                Color spec = h3 >= glow ? RGB(246, 252, 255) : lerp_color(get_pixel(px, py), RGB(255, 255, 255), 26214);
+                put_pixel(px, py, blend(get_pixel(px, py), spec, (u8)(((u32)glow * coverage) / 255)));
+            }
+        }
+    }
+}
+
+void gfx_liquid_filter_glass_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
+    if (!gfx_ready || width <= 0 || height <= 0) {
+        return;
+    }
+
+    if (radius * 2 > width) {
+        radius = width / 2;
+    }
+    if (radius * 2 > height) {
+        radius = height / 2;
+    }
+
+    u32 pixels = active_fb->width * active_fb->height;
+    memcpy(scene_buffer, back_buffer, pixels * sizeof(u32));
+
+    for (i32 py = y; py < y + height; py++) {
+        for (i32 px = x; px < x + width; px++) {
+            u8 coverage = round_rect_coverage(px, py, x, y, width, height, radius);
+            if (!coverage) {
+                continue;
+            }
+
+            i32 lx = px - x;
+            i32 ly = py - y;
+            i32 right = width - 1 - lx;
+            i32 bottom = height - 1 - ly;
+            i32 edge = min_i32(min_i32(lx, right), min_i32(ly, bottom));
+            i32 edge_strength = edge < radius ? ((radius - edge) * 255) / radius : 0;
+            i32 mid_x = width / 2;
+            i32 mid_y = height / 2;
+
+            i32 dx = 0;
+            i32 dy = 0;
+            if (lx < radius) {
+                dx -= ((radius - lx) * 10) / radius;
+            } else if (right < radius) {
+                dx += ((radius - right) * 10) / radius;
+            }
+            if (ly < radius) {
+                dy -= ((radius - ly) * 7) / radius;
+            } else if (bottom < radius) {
+                dy += ((radius - bottom) * 7) / radius;
+            }
+
+            if (edge_strength > 0) {
+                dx += ((lx - mid_x) * edge_strength) / (width * 5);
+                dy += ((ly - mid_y) * edge_strength) / (height * 8);
+            }
+            dx += ((lx - mid_x) * 3) / (width > 0 ? width : 1);
+            dy += ((ly - mid_y) * 3) / (height > 0 ? height : 1);
+
+            Color displaced = blur_scene_pixel(px + dx, py + dy);
+            displaced = adjust_brightness_saturation(displaced, 170, 110);
+            Color base = blend(get_scene_pixel(px, py), displaced, (u8)((154 * coverage) / 255));
+            base = blend(base, RGB(255, 255, 255), (u8)((12 * coverage) / 255));
+            put_pixel(px, py, base);
+
+            i32 wide_rx = width / 3;
+            i32 narrow_rx = width / 6;
+            if (wide_rx < 1) {
+                wide_rx = 1;
+            }
+            if (narrow_rx < 1) {
+                narrow_rx = 1;
+            }
+            u8 left_field = liquid_highlight_alpha(px, py, x + width / 9, y + height / 2,
+                                                   wide_rx, height, 48);
+            if (left_field) {
+                Color ambient = adjust_brightness_saturation(blur_scene_pixel(x - 14, py), 185, 112);
+                ambient = blend(ambient, RGB(255, 255, 255), 18);
+                put_pixel(px, py, blend(get_pixel(px, py), ambient, (u8)(((u32)left_field * coverage) / 255)));
+            }
+            u8 right_field = liquid_highlight_alpha(px, py, x + (width * 84) / 100, y + height / 2,
+                                                    narrow_rx, height, 40);
+            if (right_field) {
+                Color ambient = adjust_brightness_saturation(blur_scene_pixel(x + width + 14, py), 180, 112);
+                ambient = blend(ambient, RGB(255, 255, 255), 12);
+                put_pixel(px, py, blend(get_pixel(px, py), ambient, (u8)(((u32)right_field * coverage) / 255)));
+            }
+            u8 center_field = liquid_highlight_alpha(px, py, x + (width * 45) / 100, y + height / 3,
+                                                     width / 4, height, 18);
+            if (center_field) {
+                Color ambient = adjust_brightness_saturation(blur_scene_pixel(px, y - 12), 170, 108);
+                put_pixel(px, py, blend(get_pixel(px, py), ambient, (u8)(((u32)center_field * coverage) / 255)));
+            }
+
+            i32 top_band = height / 3;
+            if (top_band < 1) {
+                top_band = 1;
+            }
+            if (ly < top_band) {
+                u8 light = (u8)(((top_band - ly) * 10 * coverage) / (top_band * 255));
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(246, 252, 255), light));
+            }
+
+            i32 lower_band = height / 3;
+            if (lower_band < 1) {
+                lower_band = 1;
+            }
+            if (bottom < lower_band) {
+                u8 dark = (u8)(((lower_band - bottom) * 32 * coverage) / (lower_band * 255));
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(0, 4, 26), dark));
+            }
+
+            u8 inner1 = round_rect_coverage(px, py, x + 1, y + 1, width - 2, height - 2, radius - 1);
+            if (coverage > inner1) {
+                u8 rim = (u8)(((u32)(coverage - inner1) * 128) / 255);
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(250, 254, 255), rim));
+            }
+
+            i32 side_band = radius / 2;
+            if (side_band < 6) {
+                side_band = 6;
+            }
+            if (right < side_band) {
+                i32 distance = right;
+                u8 side = (u8)(((side_band - distance) * 16 * coverage) / (side_band * 255));
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(235, 249, 255), side));
+            }
+        }
+    }
+}
+
+static i64 dist2_to_segment(i32 px, i32 py, i32 x0, i32 y0, i32 x1, i32 y1) {
+    i64 vx = x1 - x0;
+    i64 vy = y1 - y0;
+    i64 wx = px - x0;
+    i64 wy = py - y0;
+    i64 len2 = vx * vx + vy * vy;
+    if (len2 <= 0) {
+        i64 dx = px - x0;
+        i64 dy = py - y0;
+        return dx * dx + dy * dy;
+    }
+
+    i64 dot = wx * vx + wy * vy;
+    if (dot <= 0) {
+        i64 dx = px - x0;
+        i64 dy = py - y0;
+        return dx * dx + dy * dy;
+    }
+    if (dot >= len2) {
+        i64 dx = px - x1;
+        i64 dy = py - y1;
+        return dx * dx + dy * dy;
+    }
+
+    i32 cx = x0 + (i32)((vx * dot + len2 / 2) / len2);
+    i32 cy = y0 + (i32)((vy * dot + len2 / 2) / len2);
+    i64 dx = px - cx;
+    i64 dy = py - cy;
+    return dx * dx + dy * dy;
+}
+
+static u8 grip_path_coverage(i32 px, i32 py, i32 x, i32 y, i32 width, i32 height, i32 radius) {
+    if (radius <= 0 || px < x || py < y || px >= x + width || py >= y + height) {
+        return 0;
+    }
+
+    i32 x0 = x + (width * 18) / 100;
+    i32 y0 = y + (height * 72) / 100;
+    i32 x1 = x + (width * 45) / 100;
+    i32 y1 = y + (height * 68) / 100;
+    i32 x2 = x + (width * 82) / 100;
+    i32 y2 = y + (height * 28) / 100;
+
+    i64 d0 = dist2_to_segment(px, py, x0, y0, x1, y1);
+    i64 d1 = dist2_to_segment(px, py, x1, y1, x2, y2);
+    i64 dist2 = d0 < d1 ? d0 : d1;
+    i64 inner = (i64)(radius - 1) * (radius - 1);
+    i64 outer = (i64)radius * radius;
+    i64 span = outer - inner;
+    if (dist2 <= inner) {
+        return 255;
+    }
+    if (dist2 > outer || span <= 0) {
+        return 0;
+    }
+    return (u8)(((outer - dist2) * 255) / span);
+}
+
+void gfx_liquid_glass_grip(i32 x, i32 y, i32 width, i32 height, i32 radius) {
+    if (!gfx_ready || width <= 0 || height <= 0) {
+        return;
+    }
+
+    if (radius < 3) {
+        radius = 3;
+    }
+    if (radius > height / 2) {
+        radius = height / 2;
+    }
+
+    for (i32 py = y; py < y + height; py++) {
+        for (i32 px = x; px < x + width; px++) {
+            u8 coverage = grip_path_coverage(px, py, x, y, width, height, radius);
+            if (!coverage) {
+                continue;
+            }
+
+            u32 r = 0;
+            u32 g = 0;
+            u32 b = 0;
+            u32 count = 0;
+            for (i32 oy = -2; oy <= 2; oy++) {
+                for (i32 ox = -2; ox <= 2; ox++) {
+                    Color c = get_pixel(px + ox, py + oy);
+                    r += (c >> 16) & 0xFF;
+                    g += (c >> 8) & 0xFF;
+                    b += c & 0xFF;
+                    count++;
+                }
+            }
+
+            Color blurred = RGB(r / count, g / count, b / count);
+            put_pixel(px, py, blend(get_pixel(px, py), blurred, (u8)((92 * coverage) / 255)));
+        }
+    }
+
+    for (i32 py = y; py < y + height; py++) {
+        for (i32 px = x; px < x + width; px++) {
+            u8 coverage = grip_path_coverage(px, py, x, y, width, height, radius);
+            if (!coverage) {
+                continue;
+            }
+
+            u8 inner = grip_path_coverage(px, py, x, y, width, height, radius - 2);
+            i32 local_y = py - y;
+            u32 amount = height > 1 ? (u32)((local_y * 65536) / (height - 1)) : 0;
+            Color tint = lerp_color(RGB(232, 246, 255), RGB(126, 156, 190), amount);
+            put_pixel(px, py, blend(get_pixel(px, py), tint, (u8)((18 * coverage) / 255)));
+
+            if (inner < coverage) {
+                i32 dx = px < x + width / 2 ? -1 : 1;
+                i32 dy = py < y + height / 2 ? -1 : 1;
+                Color refracted = get_pixel(px + dx, py + dy);
+                u8 edge = (u8)(coverage - inner);
+                put_pixel(px, py, blend(get_pixel(px, py), refracted, (u8)((54 * edge) / 255)));
+                put_pixel(px, py, blend(get_pixel(px, py), RGB(245, 252, 255), (u8)((68 * edge) / 255)));
             }
         }
     }
@@ -468,6 +796,67 @@ void gfx_blur_round_rect(i32 x, i32 y, i32 width, i32 height, i32 radius) {
             }
 
             put_pixel(px, py, RGB(r / count, g / count, b / count));
+        }
+    }
+}
+
+void gfx_refract_round_rect_edges(i32 x, i32 y, i32 width, i32 height, i32 radius, i32 strength) {
+    if (!gfx_ready || width <= 0 || height <= 0 || strength <= 0) {
+        return;
+    }
+
+    for (i32 py = y; py < y + height; py++) {
+        for (i32 px = x; px < x + width; px++) {
+            u8 outer = round_rect_coverage(px, py, x, y, width, height, radius);
+            if (!outer) {
+                continue;
+            }
+
+            u8 inner = round_rect_coverage(px, py, x + 5, y + 5, width - 10, height - 10, radius - 5);
+            if (inner > 0) {
+                continue;
+            }
+
+            i32 dx = 0;
+            i32 dy = 0;
+            if (px < x + radius) {
+                dx = strength;
+            } else if (px >= x + width - radius) {
+                dx = -strength;
+            }
+            if (py < y + radius) {
+                dy = strength;
+            } else if (py >= y + height - radius) {
+                dy = -strength;
+            }
+
+            Color refracted = get_pixel(px + dx, py + dy);
+            u8 alpha = (u8)(((u32)(outer - inner) * 92) / 255);
+            put_pixel(px, py, blend(get_pixel(px, py), refracted, alpha));
+        }
+    }
+}
+
+void gfx_draw_round_rect_alpha(i32 x, i32 y, i32 width, i32 height, i32 radius, Color color, u8 alpha) {
+    if (!gfx_ready || width <= 0 || height <= 0 || alpha == 0) {
+        return;
+    }
+
+    for (i32 py = y; py < y + height; py++) {
+        for (i32 px = x; px < x + width; px++) {
+            u8 outer = round_rect_coverage(px, py, x, y, width, height, radius);
+            if (!outer) {
+                continue;
+            }
+
+            u8 inner = round_rect_coverage(px, py, x + 1, y + 1, width - 2, height - 2, radius - 1);
+            if (outer <= inner) {
+                continue;
+            }
+
+            u8 coverage = (u8)(outer - inner);
+            u8 effective = (u8)(((u32)alpha * coverage) / 255);
+            put_pixel(px, py, blend(get_pixel(px, py), color, effective));
         }
     }
 }
@@ -509,6 +898,38 @@ void gfx_draw_argb8888_image_scaled(i32 x, i32 y, i32 width, i32 height, const u
                 continue;
             }
 
+            Color color = RGB((packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF);
+            if (alpha == 255) {
+                put_pixel(x + px, y + py, color);
+            } else {
+                put_pixel(x + px, y + py, blend(get_pixel(x + px, y + py), color, alpha));
+            }
+        }
+    }
+}
+
+void gfx_draw_argb8888_image_scaled_round(i32 x, i32 y, i32 width, i32 height, i32 radius,
+                                          const u32 *pixels, u32 src_width, u32 src_height) {
+    if (!pixels || width <= 0 || height <= 0 || src_width == 0 || src_height == 0) {
+        return;
+    }
+
+    for (i32 py = 0; py < height; py++) {
+        u32 sy = ((u32)py * src_height) / (u32)height;
+        for (i32 px = 0; px < width; px++) {
+            u8 coverage = round_rect_coverage(x + px, y + py, x, y, width, height, radius);
+            if (coverage == 0) {
+                continue;
+            }
+
+            u32 sx = ((u32)px * src_width) / (u32)width;
+            u32 packed = pixels[sy * src_width + sx];
+            u8 alpha = (u8)(packed >> 24);
+            if (alpha == 0) {
+                continue;
+            }
+
+            alpha = (u8)(((u32)alpha * coverage) / 255);
             Color color = RGB((packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF);
             if (alpha == 255) {
                 put_pixel(x + px, y + py, color);
@@ -597,6 +1018,17 @@ static i32 ui_font_advance(u32 index, u32 scale) {
     return advance > 4 ? (i32)advance - 2 : (i32)advance;
 }
 
+static i32 ui_font_percent_advance(u32 index, u32 percent) {
+    u32 advance = ui_font_widths[index] > 4 ? ui_font_widths[index] - 2 : ui_font_widths[index];
+    i32 scaled = (i32)((advance * percent + 50) / 100);
+    return scaled > 1 ? scaled : 1;
+}
+
+static bool text_pointer_valid(const char *text) {
+    uintptr_t value = (uintptr_t)text;
+    return value >= 0x1000 && value < 0x40000000ULL;
+}
+
 static u8 ui_font_native_alpha(u32 index, u32 x, u32 y) {
     if (x >= UI_FONT_WIDTH || y >= UI_FONT_HEIGHT) {
         return 0;
@@ -655,6 +1087,10 @@ void gfx_draw_char(i32 x, i32 y, char ch, Color color, u32 scale) {
 }
 
 void gfx_draw_text(i32 x, i32 y, const char *text, Color color, u32 scale) {
+    if (!text_pointer_valid(text)) {
+        return;
+    }
+
     i32 cursor_x = x;
     i32 cursor_y = y;
     i32 line_height = ui_font_output_height(scale) + (scale <= 1 ? 3 : 5);
@@ -672,26 +1108,57 @@ void gfx_draw_text(i32 x, i32 y, const char *text, Color color, u32 scale) {
     }
 }
 
-#define CURSOR_WIDTH 11
-#define CURSOR_HEIGHT 15
+void gfx_draw_text_percent(i32 x, i32 y, const char *text, Color color, u32 percent) {
+    if (!text_pointer_valid(text)) {
+        return;
+    }
 
-static const char *cursor_shape[CURSOR_HEIGHT] = {
-    "X          ",
-    "XX         ",
-    "XOX        ",
-    "XOOX       ",
-    "XOOOX      ",
-    "XOOOOX     ",
-    "XOOOOOX    ",
-    "XOOOOOOX   ",
-    "XOOOOOOOX  ",
-    "XOOOOX     ",
-    "XOXXOOX    ",
-    "XX  XOOX   ",
-    "X    XOOX  ",
-    "     XOOX  ",
-    "      XX   "
-};
+    if (percent < 35) {
+        percent = 35;
+    }
+
+    i32 cursor_x = x;
+    while (*text) {
+        if (*text == '\n') {
+            cursor_x = x;
+        } else {
+            u32 index = ui_font_index(*text);
+            u32 draw_width = ui_font_widths[index] + 2;
+            if (draw_width > UI_FONT_WIDTH) {
+                draw_width = UI_FONT_WIDTH;
+            }
+
+            u32 out_width = (draw_width * percent + 50) / 100;
+            u32 out_height = (UI_FONT_HEIGHT * percent + 50) / 100;
+            if (out_width < 1) {
+                out_width = 1;
+            }
+            if (out_height < 1) {
+                out_height = 1;
+            }
+
+            for (u32 row = 0; row < out_height; row++) {
+                u32 src_y = (row * 100) / percent;
+                if (src_y >= UI_FONT_HEIGHT) {
+                    src_y = UI_FONT_HEIGHT - 1;
+                }
+                for (u32 col = 0; col < out_width; col++) {
+                    u32 src_x = (col * 100) / percent;
+                    if (src_x >= draw_width) {
+                        src_x = draw_width - 1;
+                    }
+                    u8 alpha = ui_font_native_alpha(index, src_x, src_y);
+                    if (alpha) {
+                        put_pixel(cursor_x + (i32)col, y + (i32)row,
+                                  blend(get_pixel(cursor_x + (i32)col, y + (i32)row), color, alpha));
+                    }
+                }
+            }
+            cursor_x += ui_font_percent_advance(index, percent);
+        }
+        text++;
+    }
+}
 
 static bool cursor_color_at(i32 cursor_x, i32 cursor_y, i32 px, i32 py, Color *color) {
     i32 local_x = px - cursor_x;
@@ -700,22 +1167,22 @@ static bool cursor_color_at(i32 cursor_x, i32 cursor_y, i32 px, i32 py, Color *c
         return false;
     }
 
-    char p = cursor_shape[local_y][local_x];
-    if (p == 'X') {
-        *color = RGB(20, 24, 28);
-        return true;
+    u32 packed = cursor_pixels[(u32)local_y * CURSOR_WIDTH + (u32)local_x];
+    u8 alpha = (u8)(packed >> 24);
+    if (alpha == 0) {
+        return false;
     }
-    if (p == 'O') {
-        *color = RGB(245, 248, 250);
-        return true;
-    }
-    return false;
+
+    Color top = packed & 0xFFFFFF;
+    *color = alpha == 255 ? top : blend(*color, top, alpha);
+    return true;
 }
 
 void gfx_draw_cursor(i32 x, i32 y) {
     for (u32 row = 0; row < CURSOR_HEIGHT; row++) {
         for (u32 col = 0; col < CURSOR_WIDTH; col++) {
             Color color;
+            color = get_pixel(x + (i32)col, y + (i32)row);
             if (cursor_color_at(x, y, x + (i32)col, y + (i32)row, &color)) {
                 put_pixel(x + (i32)col, y + (i32)row, color);
             }

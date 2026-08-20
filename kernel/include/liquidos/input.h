@@ -23,5 +23,7 @@ typedef struct InputEvent {
 void input_queue_init(void);
 bool input_queue_push(const InputEvent *event);
 bool input_queue_pop(InputEvent *event);
+u64 input_queue_coalesced_count(void);
+u64 input_queue_dropped_count(void);
 
 #endif

@@ -59,6 +59,9 @@ Invoke-CheckedCommand $vbox @(
 )
 
 Invoke-CheckedCommand $vbox @("setextradata", $VmName, "CustomVideoMode1", "1920x1080x32")
+Invoke-CheckedCommand $vbox @("setextradata", $VmName, "CustomVideoMode2", "1680x1050x32")
+Invoke-CheckedCommand $vbox @("setextradata", $VmName, "CustomVideoMode3", "1440x900x32")
+Invoke-CheckedCommand $vbox @("setextradata", $VmName, "CustomVideoMode4", "1280x800x32")
 
 $storageInfo = & $vbox showvminfo $VmName --machinereadable
 $hasIdeController = $false
